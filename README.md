@@ -32,17 +32,22 @@ deploying so its output is available in `public/assets/`.
 ### Render SQLite storage
 
 For a Render deployment using SQLite, attach a persistent disk to the web
-service at `/var/data`, then set these environment variables:
+service at `/var/data`. The Docker entrypoint uses `/var/data/pwesto.sqlite`
+on Render by default. You can also set these environment variables explicitly:
 
 ```text
 PWESTO_DB_DRIVER=sqlite
 PWESTO_DB_PATH=/var/data/pwesto.sqlite
 ```
 
-The Docker entrypoint prepares the mounted directory for Apache's `www-data`
-user. Without a persistent disk, SQLite data on Render can be lost when the
-service restarts or redeploys. Do not set `DB_HOST=localhost` on Render;
-localhost there refers to the Render container, not your computer.
+The Docker entrypoint passes the database path to PHP, prepares the mounted
+directory for Apache's `www-data` user, and stops startup if Render is using
+SQLite without a disk mounted at `/var/data` or if the database path is outside
+that mount. This prevents the app from silently writing to Render's temporary
+container filesystem. Attach the disk before deploying this change. Preserve or
+back up any existing database before changing its path; a new empty disk does
+not restore data that was already lost. Do not set `DB_HOST=localhost` on
+Render; localhost there refers to the Render container, not your computer.
 
 The backend does not restore sample stall listings. The schema migration retires
 the four extra sample stalls, preserving their rows and order history. It
