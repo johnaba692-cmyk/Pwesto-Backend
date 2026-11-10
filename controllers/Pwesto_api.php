@@ -112,9 +112,6 @@ class Pwesto_api extends Controller
         }
         $fileInfo = finfo_open(FILEINFO_MIME_TYPE);
         $mimeType = $fileInfo === false ? false : finfo_buffer($fileInfo, $content);
-        if ($fileInfo !== false) {
-            finfo_close($fileInfo);
-        }
         if (!in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true)) {
             $this->respond(['error' => 'That product image is not available.'], 404);
         }
@@ -727,7 +724,6 @@ class Pwesto_api extends Controller
             $this->respond(['error' => 'Image validation is unavailable on this server.'], 503);
         }
         $mimeType = finfo_file($fileInfo, $file['tmp_name']);
-        finfo_close($fileInfo);
         $allowed = [
             'image/jpeg' => ['jpg', IMAGETYPE_JPEG],
             'image/png' => ['png', IMAGETYPE_PNG],
@@ -957,7 +953,6 @@ class Pwesto_api extends Controller
                     $this->respond(['error' => 'Profile photo validation is unavailable on this server.'], 503);
                 }
                 $mimeType = finfo_file($fileInfo, $file['tmp_name']);
-                finfo_close($fileInfo);
                 $imageInfo = @getimagesize($file['tmp_name']);
                 if (!is_string($mimeType) || !isset($imageTypes[$mimeType])
                     || $imageInfo === false || $imageInfo[2] !== $imageTypes[$mimeType][1]
@@ -1639,8 +1634,6 @@ class Pwesto_api extends Controller
             $this->respond(['error' => 'File validation is unavailable on this server.'], 503);
         }
         $mimeType = finfo_file($fileInfo, $file['tmp_name']);
-        finfo_close($fileInfo);
-
         if ($kind === 'document') {
             $allowed = [
                 'application/pdf' => ['pdf', null],
