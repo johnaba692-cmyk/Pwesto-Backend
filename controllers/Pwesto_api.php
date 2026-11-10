@@ -1119,42 +1119,43 @@ class Pwesto_api extends Controller
 
     public function create_vendor()
     {
-        $this->require_user();
-        $this->require_method('POST');
-        $this->verify_csrf_token();
-        $this->reject_oversized_form_request();
-        $name = isset($_POST['name']) && is_string($_POST['name']) ? trim($_POST['name']) : '';
-        $category = $_POST['category'] ?? '';
-        $market = $_POST['market'] ?? '';
-        $specialty = isset($_POST['specialty']) && is_string($_POST['specialty']) ? trim($_POST['specialty']) : '';
-        $validCategories = ['Seafood', 'Meat', 'Vegetables', 'Fruits', 'Pantry', 'Flowers'];
-
-        if ($this->text_length($name) < 2 || $this->text_length($name) > 100) {
-            $this->respond(['error' => 'Enter a stall name between 2 and 100 characters.'], 422);
-        }
-        if (!is_string($category) || !in_array($category, $validCategories, true)) {
-            $this->respond(['error' => 'Choose a valid stall category.'], 422);
-        }
-        $markets = $this->store_call(function () { return $this->store->markets(); }, 'Market locations could not be loaded.');
-        if (!is_string($market) || !in_array($market, $markets, true)) {
-            $this->respond(['error' => 'Choose a supported public market.'], 422);
-        }
-        if ($this->text_length($specialty) < 5 || $this->text_length($specialty) > 240) {
-            $this->respond(['error' => 'Describe your specialties in 5 to 240 characters.'], 422);
-        }
-
-        $rentalFee = $this->monthly_rental_fee();
-        $paymentConfigured = $this->xendit_configured();
-        $documents = [
-            'application_document' => $this->validate_private_document('application_document', 'document'),
-            'cedula_document' => $this->validate_private_document('cedula_document', 'document'),
-            'photo_document' => $this->validate_private_document('photo_document', 'photo'),
-        ];
-        $vendorId = bin2hex(random_bytes(12));
-        $storedDocuments = $this->persist_private_documents($documents, $vendorId);
-
-        $user = $this->current_user();
+        $storedDocuments = [];
         try {
+            $this->require_user();
+            $this->require_method('POST');
+            $this->verify_csrf_token();
+            $this->reject_oversized_form_request();
+            $name = isset($_POST['name']) && is_string($_POST['name']) ? trim($_POST['name']) : '';
+            $category = $_POST['category'] ?? '';
+            $market = $_POST['market'] ?? '';
+            $specialty = isset($_POST['specialty']) && is_string($_POST['specialty']) ? trim($_POST['specialty']) : '';
+            $validCategories = ['Seafood', 'Meat', 'Vegetables', 'Fruits', 'Pantry', 'Flowers'];
+
+            if ($this->text_length($name) < 2 || $this->text_length($name) > 100) {
+                $this->respond(['error' => 'Enter a stall name between 2 and 100 characters.'], 422);
+            }
+            if (!is_string($category) || !in_array($category, $validCategories, true)) {
+                $this->respond(['error' => 'Choose a valid stall category.'], 422);
+            }
+            $markets = $this->store_call(function () { return $this->store->markets(); }, 'Market locations could not be loaded.');
+            if (!is_string($market) || !in_array($market, $markets, true)) {
+                $this->respond(['error' => 'Choose a supported public market.'], 422);
+            }
+            if ($this->text_length($specialty) < 5 || $this->text_length($specialty) > 240) {
+                $this->respond(['error' => 'Describe your specialties in 5 to 240 characters.'], 422);
+            }
+
+            $rentalFee = $this->monthly_rental_fee();
+            $paymentConfigured = $this->xendit_configured();
+            $documents = [
+                'application_document' => $this->validate_private_document('application_document', 'document'),
+                'cedula_document' => $this->validate_private_document('cedula_document', 'document'),
+                'photo_document' => $this->validate_private_document('photo_document', 'photo'),
+            ];
+            $vendorId = bin2hex(random_bytes(12));
+            $storedDocuments = $this->persist_private_documents($documents, $vendorId);
+
+            $user = $this->current_user();
             $vendorId = $this->store->createVendor([
                 'id' => $vendorId,
                 'owner_id' => $user['id'],
@@ -1166,20 +1167,25 @@ class Pwesto_api extends Controller
                 'cedula_document' => $storedDocuments['cedula_document'],
                 'photo_document' => $storedDocuments['photo_document'],
             ]);
+            $vendors = $this->store_call(function () use ($user) {
+                return $this->store->vendorsForOwner($user['id']);
+            }, 'Your stall application was submitted but could not be refreshed. Reload the dashboard.');
+            $this->respond([
+                'vendor_id' => $vendorId,
+                'vendors' => $vendors,
+                'rental_fee' => $rentalFee,
+                'payment_configured' => $paymentConfigured,
+            ], 201);
         } catch (Throwable $error) {
             $this->delete_private_documents($storedDocuments);
-            error_log('Pwesto vendor application submission failed: ' . $error->getMessage());
-            $this->respond(['error' => 'Your stall application could not be submitted. Please try again.'], 503);
+            error_log(
+                'Pwesto unexpected vendor application error: '
+                . get_class($error) . ': ' . $error->getMessage()
+            );
+            $this->respond([
+                'error' => 'Pwesto could not process the application. Check that the files are valid and try again.',
+            ], 503);
         }
-        $vendors = $this->store_call(function () use ($user) {
-            return $this->store->vendorsForOwner($user['id']);
-        }, 'Your stall application was submitted but could not be refreshed. Reload the dashboard.');
-        $this->respond([
-            'vendor_id' => $vendorId,
-            'vendors' => $vendors,
-            'rental_fee' => $rentalFee,
-            'payment_configured' => $paymentConfigured,
-        ], 201);
     }
 
     public function update_vendor_documents()
