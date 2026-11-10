@@ -22,4 +22,8 @@ if [ "${PWESTO_DB_DRIVER:-sqlite}" = "sqlite" ]; then
     esac
 fi
 
+if [ "${PWESTO_RESTORE_APPROVED_STALLS:-}" = "1" ]; then
+    su -s /bin/sh www-data -c 'php /var/www/html/console/restore_approved_stalls.php'
+fi
+
 exec docker-php-entrypoint apache2-foreground

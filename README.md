@@ -44,6 +44,13 @@ user. Without a persistent disk, SQLite data on Render can be lost when the
 service restarts or redeploys. Do not set `DB_HOST=localhost` on Render;
 localhost there refers to the Render container, not your computer.
 
+To restore the two approved local sample stalls to an empty production
+database, temporarily set `PWESTO_RESTORE_APPROVED_STALLS=1` on the Render
+service and deploy this version. The restore runs only when the vendor table is
+empty; it does not overwrite existing stalls or copy user accounts. The restored
+listings are unowned and cannot accept orders until a real vendor account claims
+or replaces them. Remove the variable after confirming the listings appear.
+
 ### Google sign-in on Render
 
 In Google Cloud Console, open the OAuth 2.0 client used by this app (type
