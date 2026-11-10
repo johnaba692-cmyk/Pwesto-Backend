@@ -164,8 +164,22 @@ if ( ! function_exists('_shutdown_handler'))
 {
 	function _pwesto_is_api_request()
 	{
-		$path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
-		return is_string($path) && preg_match('~(?:^|/)api(?:/|$)~', $path) === 1;
+		$requestUris = [
+			$_SERVER['REQUEST_URI'] ?? '',
+			$_SERVER['PATH_INFO'] ?? '',
+			$_SERVER['ORIG_PATH_INFO'] ?? '',
+		];
+		foreach ($requestUris as $requestUri) {
+			$path = parse_url((string) $requestUri, PHP_URL_PATH);
+			if (is_string($path) && preg_match('~(?:^|/)api(?:/|$)~', $path) === 1) {
+				return true;
+			}
+		}
+
+		$acceptsJson = stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false;
+		$isMultipartPost = strtoupper($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+			&& stripos($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data') === 0;
+		return $acceptsJson && $isMultipartPost;
 	}
 
 	function _pwesto_log_api_failure($label, $message, $file, $line)
