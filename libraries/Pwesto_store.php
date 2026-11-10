@@ -100,19 +100,23 @@ class Pwesto_store
             throw new RuntimeException('Set PWESTO_DB_SSL_CA to the readable Aiven CA certificate file to enable verified TLS.');
         }
 
+        $mysqlAttributeClass = PHP_VERSION_ID >= 80500 ? 'Pdo\\Mysql' : 'PDO';
+        $mysqlAttribute = static function ($name) use ($mysqlAttributeClass) {
+            return constant($mysqlAttributeClass . '::' . $name);
+        };
         $options = [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => true,
-            PDO::MYSQL_ATTR_FOUND_ROWS => true,
+            $mysqlAttribute('ATTR_FOUND_ROWS') => true,
         ];
         if (!$isLocalHost) {
-            if (!defined('PDO::MYSQL_ATTR_SSL_CA')) {
+            if (!defined($mysqlAttributeClass . '::ATTR_SSL_CA')) {
                 throw new RuntimeException('The PDO MySQL TLS options are unavailable. Enable the PDO MySQL extension.');
             }
-            $options[PDO::MYSQL_ATTR_SSL_CA] = $caFile;
-            if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
-                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+            $options[$mysqlAttribute('ATTR_SSL_CA')] = $caFile;
+            if (defined($mysqlAttributeClass . '::ATTR_SSL_VERIFY_SERVER_CERT')) {
+                $options[$mysqlAttribute('ATTR_SSL_VERIFY_SERVER_CERT')] = true;
             }
         }
 
