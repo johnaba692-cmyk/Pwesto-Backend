@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.dockerignore
+vendor/
+node_modules/
+runtime/
+public/uploads/*
+!public/uploads/.htaccess
+*.log
