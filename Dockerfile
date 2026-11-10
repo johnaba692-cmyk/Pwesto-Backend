@@ -5,8 +5,8 @@ FROM php:${PHP_VERSION}-apache
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev \
-    && docker-php-ext-install curl pdo_mysql pdo_sqlite \
+    && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev libzip-dev unzip \
+    && docker-php-ext-install curl pdo_mysql pdo_sqlite zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache mod_rewrite
