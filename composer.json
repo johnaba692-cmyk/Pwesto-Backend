@@ -1,6 +1,7 @@
 {
   "require": {
-    "cloudinary/cloudinary_php": "^2.14",
-    "phpmailer/phpmailer": "^6.9"
+    "cloudinary/cloudinary_php": "^3.0",
+    "phpmailer/phpmailer": "^6.9",
+    "symfony/polyfill-php81": "^1.28"
   }
 }
