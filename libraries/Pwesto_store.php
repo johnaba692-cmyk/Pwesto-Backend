@@ -79,6 +79,7 @@ class Pwesto_store
             $configuredCaFile,
             '/etc/secrets/aiven-ca.pem',
             '/etc/secrets/ca.pem',
+            ROOT_DIR . 'config' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
             ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
         ]);
         $caFile = '';
