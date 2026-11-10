@@ -1136,7 +1136,7 @@ class Pwesto_store
             $userId = $query->fetchColumn();
 
             if ($userId === false) {
-                $query = $this->pdo->prepare('SELECT id FROM pwesto_users WHERE email = :email LIMIT 1');
+                $query = $this->pdo->prepare('SELECT id FROM pwesto_users WHERE LOWER(email) = :email LIMIT 1');
                 $query->execute(['email' => $user['email']]);
                 $userId = $query->fetchColumn();
             }
@@ -1213,7 +1213,7 @@ class Pwesto_store
     {
         $query = $this->pdo->prepare(
             'SELECT id, email, name, picture, password_hash, role
-             FROM pwesto_users WHERE email = :email LIMIT 1'
+             FROM pwesto_users WHERE LOWER(email) = :email LIMIT 1'
         );
         $query->execute(['email' => $email]);
         $user = $query->fetch();
@@ -1238,7 +1238,7 @@ class Pwesto_store
     public function createPasswordResetRequest($email)
     {
         $query = $this->pdo->prepare(
-            'SELECT id, email, name, password_hash FROM pwesto_users WHERE email = :email LIMIT 1'
+            'SELECT id, email, name, password_hash FROM pwesto_users WHERE LOWER(email) = :email LIMIT 1'
         );
         $query->execute(['email' => $email]);
         $user = $query->fetch();
@@ -1560,7 +1560,7 @@ class Pwesto_store
             }
 
             $userQuery = $this->pdo->prepare(
-                'SELECT id, name, email, role FROM pwesto_users WHERE email = :email LIMIT 1' . $lock
+                'SELECT id, name, email, role FROM pwesto_users WHERE LOWER(email) = :email LIMIT 1' . $lock
             );
             $userQuery->execute(['email' => $email]);
             $user = $userQuery->fetch();

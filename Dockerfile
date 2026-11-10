@@ -10,6 +10,8 @@ COPY docker-entrypoint.sh /usr/local/bin/pwesto-entrypoint
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev libzip-dev unzip \
     && docker-php-ext-install curl pdo_mysql pdo_sqlite zip \
+    && printf 'upload_max_filesize=3M\npost_max_size=12M\nmax_file_uploads=10\nmax_input_time=120\n' \
+        > /usr/local/etc/php/conf.d/pwesto-uploads.ini \
     && chmod +x /usr/local/bin/pwesto-entrypoint \
     && rm -rf /var/lib/apt/lists/*
 

@@ -2064,7 +2064,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 </div>
                 </div>
                 <section class="merchant-card product-management-card vendor-page" data-vendor-page="products">
-                    <div class="merchant-card-heading"><div><h3>Your product catalog</h3><p>Browse and manage the products customers can see at your stall.</p></div><button class="button button-primary button-small" type="button" id="addProductFromCatalog">Add product</button></div>
+                    <div class="merchant-card-heading"><div><h3>Your product catalog</h3><p>Add products while your application is pending. Customers can see and order them only after the stall is approved.</p></div><button class="button button-primary button-small" type="button" id="addProductFromCatalog">Add product</button></div>
                     <div class="product-stall-select">
                         <label for="productCatalogVendorSelect">Stall</label>
                         <select id="productCatalogVendorSelect" required><option value="">Choose one of your stalls</option></select>
@@ -2073,7 +2073,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                     <div id="vendorProductList" class="vendor-product-list"><p class="product-list-empty">Choose a stall to view its catalog.</p></div>
                 </section>
                 <section class="merchant-card product-management-card vendor-page" data-vendor-page="add-product">
-                    <div class="merchant-card-heading"><div><h3 id="productFormHeading">Add a product</h3><p>Enter the product details customers need to know before ordering.</p></div></div>
+                    <div class="merchant-card-heading"><div><h3 id="productFormHeading">Add a product</h3><p>Enter the actual name, price, and available stock. Products stay hidden until the stall is approved.</p></div></div>
                     <form id="productForm" class="merchant-form product-form">
                         <input type="hidden" id="productId" name="product_id" value="">
                         <div class="form-full"><label for="productVendorSelect">Stall</label><select id="productVendorSelect" required><option value="">Choose one of your stalls</option></select></div>
@@ -2412,6 +2412,16 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 showMarketDiscovery();
                 if (search) $('searchInput').focus({ preventScroll: true });
             }
+            function validateRequirementFiles(fileInputs) {
+                const files = Array.from(fileInputs).map(input => input.files && input.files[0]).filter(Boolean);
+                if (files.some(file => file.size > 2 * 1024 * 1024)) {
+                    return 'Each requirement file must be no larger than 2 MB.';
+                }
+                if (files.reduce((total, file) => total + file.size, 0) > 10 * 1024 * 1024) {
+                    return 'The selected requirement files are too large to upload together. Choose smaller files and try again.';
+                }
+                return '';
+            }
             async function api(path, options) {
                 const config = Object.assign({ credentials: 'same-origin', headers: {} }, options || {});
                 config.headers = Object.assign({ 'Accept': 'application/json' }, config.headers);
@@ -2433,7 +2443,14 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 try {
                     result = await response.json();
                 } catch (error) {
-                    throw new Error('Pwesto returned an unreadable response. Please try again.');
+                    const contentType = response.headers.get('Content-Type') || 'unknown content type';
+                    if (response.status === 413) {
+                        throw new Error('The server rejected this upload because it is too large. Keep each requirement file under 2 MB and try again.');
+                    }
+                    if (response.status >= 500) {
+                        throw new Error(`Pwesto could not process this request (HTTP ${response.status}). Please try again later; if it continues, share this status with the site administrator.`);
+                    }
+                    throw new Error(`Pwesto returned an unexpected response (HTTP ${response.status}, ${contentType}). Refresh the page and try again.`);
                 }
                 if (response.status === 403
                     && result.error === 'Your session has expired. Refresh the page and try again.'
@@ -2466,7 +2483,8 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                         if (error instanceof TypeError) {
                             throw new Error('We couldn’t reach Pwesto just now. Check your connection or try again shortly.');
                         }
-                        throw new Error('Pwesto returned an unreadable response. Please try again.');
+                        const contentType = response.headers.get('Content-Type') || 'unknown content type';
+                        throw new Error(`Pwesto returned an unexpected response (HTTP ${response.status}, ${contentType}). Refresh the page and try again.`);
                     }
                 }
                 if (!response.ok) throw new Error(result.error || 'Something went wrong. Please try again.');
@@ -3005,7 +3023,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 ).join('');
             }
             async function loadManagedProducts() {
-                if (!state.productVendorId || !state.user || state.user.role !== 'vendor') {
+                if (!state.productVendorId || !state.user) {
                     state.managedProducts = [];
                     renderManagedProducts();
                     return;
@@ -3148,7 +3166,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                         const requirementsText = documentsReady ? 'Application, cedula, and 2×2 photo submitted' : 'Required documents are incomplete';
                         const paymentConfigText = state.paymentConfigured || paymentStatus === 'paid' ? '' : 'Xendit checkout awaits server configuration.';
                         const requirementsForm = `<details class="vendor-requirements-update"><summary>${documentsReady ? 'Replace submitted documents' : 'Upload missing requirements'}</summary><p>Choose one or more files to add or replace. Only Pwesto administrators can view these private documents.</p><form data-update-vendor-docs="${escapeHtml(vendor.id)}"><input type="hidden" name="vendor_id" value="${escapeHtml(vendor.id)}"><label>Application form · PDF/JPEG/PNG${Number(vendor.has_application) ? '' : ' · missing'}<input type="file" name="application_document" accept="application/pdf,image/jpeg,image/png"></label><label>Barangay cedula · PDF/JPEG/PNG${Number(vendor.has_cedula) ? '' : ' · missing'}<input type="file" name="cedula_document" accept="application/pdf,image/jpeg,image/png"></label><label>2×2 photo · square JPEG/PNG${Number(vendor.has_photo) ? '' : ' · missing'}<input type="file" name="photo_document" accept="image/jpeg,image/png"></label><button type="submit" class="merchant-edit-button">Save requirements</button></form></details>`;
-                        return `<div class="merchant-vendor-row"><div class="merchant-vendor-name"><span class="merchant-vendor-icon" aria-hidden="true">⌂</span><span><strong>${escapeHtml(vendor.stall_code || 'Code pending')} · ${escapeHtml(vendor.name)}</strong><small>${escapeHtml(vendor.category)} · ${escapeHtml(vendor.market)}<br>${escapeHtml(vendor.specialty)}<br>${requirementsText}</small></span></div><div class="merchant-row-actions"><span class="status-pill ${vendor.status === 'pending' ? 'status-pending' : vendor.status === 'rejected' ? 'status-rejected' : ''}">${escapeHtml(vendor.status)}</span><button type="button" class="merchant-edit-button" data-edit-vendor="${escapeHtml(vendor.id)}">Edit</button><span class="merchant-payment-actions">${paymentAction}</span><span class="merchant-payment-state">${escapeHtml(paymentConfigText || ('Monthly fee · ' + paymentStatus))}</span>${requirementsForm}</div></div>`;
+                        return `<div class="merchant-vendor-row"><div class="merchant-vendor-name"><span class="merchant-vendor-icon" aria-hidden="true">⌂</span><span><strong>${escapeHtml(vendor.stall_code || 'Code pending')} · ${escapeHtml(vendor.name)}</strong><small>${escapeHtml(vendor.category)} · ${escapeHtml(vendor.market)}<br>${escapeHtml(vendor.specialty)}<br>${requirementsText}</small></span></div><div class="merchant-row-actions"><span class="status-pill ${vendor.status === 'pending' ? 'status-pending' : vendor.status === 'rejected' ? 'status-rejected' : ''}">${escapeHtml(vendor.status)}</span><button type="button" class="merchant-edit-button" data-manage-products="${escapeHtml(vendor.id)}">Manage products</button><button type="button" class="merchant-edit-button" data-edit-vendor="${escapeHtml(vendor.id)}">Edit</button><span class="merchant-payment-actions">${paymentAction}</span><span class="merchant-payment-state">${escapeHtml(paymentConfigText || ('Monthly fee · ' + paymentStatus))}</span>${requirementsForm}</div></div>`;
                     }).join('')
                     : '<p class="booking-empty">You haven’t submitted a stall yet.</p>';
                 refreshProductVendorOptions();
@@ -3837,7 +3855,9 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                     updateRoleDashboard();
                     resumePendingMessageIntent();
                 } catch (error) {
-                    message.textContent = error.message;
+                    message.textContent = !wasRegistering && error.message === 'The email or password is incorrect.'
+                        ? 'The email or password is incorrect. If an admin created this vendor account or you signed up with Google, use “Forgot password?” to set an email password, or sign in with Google.'
+                        : error.message;
                 } finally {
                     button.disabled = false;
                     button.textContent = authMode === 'register' ? 'Create my Pwesto account' : 'Sign in with email';
@@ -4114,10 +4134,23 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 const button = event.target.closest('[data-edit-vendor]');
                 if (button) editVendorProfile(button.dataset.editVendor);
             });
+            $('merchantVendorList').addEventListener('click', event => {
+                const button = event.target.closest('[data-manage-products]');
+                if (!button) return;
+                state.productVendorId = button.dataset.manageProducts;
+                refreshProductVendorOptions();
+                showDashboardPanel('vendor');
+                showVendorSection('products');
+            });
             $('merchantVendorList').addEventListener('submit', async event => {
                 const form = event.target.closest('form[data-update-vendor-docs]');
                 if (!form) return;
                 event.preventDefault();
+                const uploadError = validateRequirementFiles(form.querySelectorAll('input[type="file"]'));
+                if (uploadError) {
+                    showToast(uploadError, true);
+                    return;
+                }
                 const submit = form.querySelector('[type="submit"]');
                 submit.disabled = true;
                 submit.textContent = 'Uploading…';
@@ -4554,6 +4587,17 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 }
                 const submit = $('merchantForm').querySelector('[type="submit"]');
                 const editingVendorId = $('stallVendorId').value;
+                if (!editingVendorId) {
+                    const uploadError = validateRequirementFiles([
+                        $('applicationDocument'),
+                        $('cedulaDocument'),
+                        $('vendorTwoByTwo')
+                    ]);
+                    if (uploadError) {
+                        showToast(uploadError, true);
+                        return;
+                    }
+                }
                 submit.disabled = true;
                 submit.textContent = editingVendorId ? 'Saving…' : 'Submitting…';
                 try {

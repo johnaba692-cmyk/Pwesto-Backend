@@ -73,13 +73,12 @@ class Pwesto_api extends Controller
 
     public function vendor_product_image()
     {
-        $this->require_role('vendor');
+        $user = $this->require_vendor_workspace();
         $this->require_method('GET');
         $productId = $_GET['product_id'] ?? '';
         if (!is_string($productId) || !preg_match('/^[a-f0-9]{32}$/', $productId)) {
             $this->respond(['error' => 'Choose a valid product image.'], 422);
         }
-        $user = $this->current_user();
         $objectName = $this->store_call(function () use ($productId, $user) {
             return $this->store->productImageForOwner($productId, $user['id']);
         }, 'Your product image could not be loaded.');
@@ -129,8 +128,7 @@ class Pwesto_api extends Controller
 
     public function vendor_products()
     {
-        $this->require_role('vendor');
-        $user = $this->current_user();
+        $user = $this->require_vendor_workspace();
         $method = $_SERVER['REQUEST_METHOD'] ?? '';
         if ($method === 'GET') {
             $vendorId = $_GET['vendor_id'] ?? '';
@@ -1126,6 +1124,7 @@ class Pwesto_api extends Controller
         $this->require_user();
         $this->require_method('POST');
         $this->verify_csrf_token();
+        $this->reject_oversized_form_request();
         $name = isset($_POST['name']) && is_string($_POST['name']) ? trim($_POST['name']) : '';
         $category = $_POST['category'] ?? '';
         $market = $_POST['market'] ?? '';
@@ -1190,6 +1189,7 @@ class Pwesto_api extends Controller
         $this->require_user();
         $this->require_method('POST');
         $this->verify_csrf_token();
+        $this->reject_oversized_form_request();
         $user = $this->current_user();
         $vendorId = $_POST['vendor_id'] ?? '';
         if (!is_string($vendorId) || !preg_match('/^[a-f0-9]{24}$/', $vendorId)) {
@@ -2142,6 +2142,23 @@ class Pwesto_api extends Controller
         }
     }
 
+    private function require_vendor_workspace()
+    {
+        $this->require_user();
+        $user = $this->current_user();
+        if (($user['role'] ?? 'customer') === 'admin'
+            || $this->isAdminEmail($user['email'] ?? '')) {
+            $this->respond(['error' => 'Only a stall owner can manage its products.'], 403);
+        }
+        $vendors = $this->store_call(function () use ($user) {
+            return $this->store->vendorsForOwner($user['id']);
+        }, 'Your stall applications could not be loaded.');
+        if (!$vendors) {
+            $this->respond(['error' => 'Submit a stall application before managing products.'], 403);
+        }
+        return $user;
+    }
+
     private function isAdminEmail($email)
     {
         $configured = getenv('PWESTO_ADMIN_EMAILS') ?: '';
@@ -2308,6 +2325,45 @@ class Pwesto_api extends Controller
             $this->respond(['error' => 'A valid JSON request body is required.'], 400);
         }
         return $body;
+    }
+
+    private function reject_oversized_form_request()
+    {
+        $contentLength = $_SERVER['CONTENT_LENGTH'] ?? '';
+        if (!is_string($contentLength) || !ctype_digit($contentLength)) {
+            return;
+        }
+        $maxBytes = $this->ini_size_bytes(ini_get('post_max_size'));
+        if ($maxBytes > 0 && (int) $contentLength > $maxBytes) {
+            $this->respond([
+                'error' => 'The combined upload is too large. Keep each requirement file under 2 MB and try again.',
+            ], 413);
+        }
+    }
+
+    private function ini_size_bytes($value)
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return 0;
+        }
+        $value = trim($value);
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+        if ($number <= 0) {
+            return 0;
+        }
+        if ($unit === 'g') {
+            $number *= 1024;
+            $unit = 'm';
+        }
+        if ($unit === 'm') {
+            $number *= 1024;
+            $unit = 'k';
+        }
+        if ($unit === 'k') {
+            $number *= 1024;
+        }
+        return (int) $number;
     }
 
     private function require_method($method)
