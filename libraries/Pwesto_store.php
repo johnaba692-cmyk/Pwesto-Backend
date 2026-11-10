@@ -69,17 +69,19 @@ class Pwesto_store
         $database = getenv('DB_NAME') ?: '';
         $username = getenv('DB_USER') ?: '';
         $password = getenv('DB_PASSWORD');
+        $isLocalHost = in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
         $caFile = getenv('PWESTO_DB_SSL_CA') ?: '';
         if ($caFile !== '' && !preg_match('/^(?:[A-Za-z]:[\\\\\/]|[\\\\\/]{2}|\/)/', $caFile)) {
             $caFile = ROOT_DIR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $caFile);
         }
-        if ($host === '' || $database === '' || $username === '' || $password === false || $password === '') {
+        if ($host === '' || $database === '' || $username === '' || $password === false
+            || (!$isLocalHost && $password === '')) {
             throw new RuntimeException('Set DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD in the local environment to connect Pwesto to MySQL.');
         }
         if (!ctype_digit((string) $port) || (int) $port < 1 || (int) $port > 65535) {
             throw new RuntimeException('DB_PORT must be a valid TCP port.');
         }
-        if ($caFile === '' || !is_file($caFile) || !is_readable($caFile)) {
+        if (!$isLocalHost && ($caFile === '' || !is_file($caFile) || !is_readable($caFile))) {
             throw new RuntimeException('Set PWESTO_DB_SSL_CA to the readable Aiven CA certificate file to enable verified TLS.');
         }
 
@@ -89,12 +91,14 @@ class Pwesto_store
             PDO::ATTR_EMULATE_PREPARES => true,
             PDO::MYSQL_ATTR_FOUND_ROWS => true,
         ];
-        if (!defined('PDO::MYSQL_ATTR_SSL_CA')) {
-            throw new RuntimeException('The PDO MySQL TLS options are unavailable. Enable the PDO MySQL extension.');
-        }
-        $options[PDO::MYSQL_ATTR_SSL_CA] = $caFile;
-        if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
-            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+        if (!$isLocalHost) {
+            if (!defined('PDO::MYSQL_ATTR_SSL_CA')) {
+                throw new RuntimeException('The PDO MySQL TLS options are unavailable. Enable the PDO MySQL extension.');
+            }
+            $options[PDO::MYSQL_ATTR_SSL_CA] = $caFile;
+            if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+            }
         }
 
         $dsn = 'mysql:host=' . $host . ';port=' . (int) $port

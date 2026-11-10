@@ -3,10 +3,12 @@ ARG PHP_VERSION=8.5
 FROM php:${PHP_VERSION}-apache
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY docker-entrypoint.sh /usr/local/bin/pwesto-entrypoint
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev libzip-dev unzip \
     && docker-php-ext-install curl pdo_mysql pdo_sqlite zip \
+    && chmod +x /usr/local/bin/pwesto-entrypoint \
     && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache mod_rewrite
@@ -39,3 +41,5 @@ RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot ${APACHE_DOCUMENT_ROOT}|g'
 EXPOSE 80
 
 VOLUME ["/var/www/html/runtime", "/var/www/html/public/uploads"]
+
+ENTRYPOINT ["/usr/local/bin/pwesto-entrypoint"]

@@ -18,7 +18,7 @@ class Pwesto_api extends Controller
             $this->store = new Pwesto_store();
         } catch (Throwable $error) {
             error_log('Pwesto database initialization failed: ' . $error->getMessage());
-            $this->respond(['error' => 'Pwesto could not connect to its database. Check the PHP SQLite extension and runtime folder permissions.'], 503);
+            $this->respond(['error' => 'Pwesto could not initialize its database. Check the database driver and connection settings; for SQLite, verify PDO_SQLite and writable storage.'], 503);
         }
     }
 
