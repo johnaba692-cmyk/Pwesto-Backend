@@ -3,7 +3,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 class Pwesto_store
 {
-    private const CURRENT_SCHEMA_VERSION = 3;
+    private const CURRENT_SCHEMA_VERSION = 5;
 
     private $pdo;
     private $driver;
@@ -33,6 +33,7 @@ class Pwesto_store
             $this->assignMissingStallCodes();
             $this->markSchemaCurrent();
         }
+        $this->configureConfirmedStalls();
     }
 
     public function connection()
@@ -163,24 +164,39 @@ class Pwesto_store
     public function vendors()
     {
         $query = $this->pdo->query(
-            "SELECT id, stall_code, name, category, market, specialty, rating, latitude AS lat,
-                    longitude AS lng, icon, image,
+            "SELECT v.id, v.stall_code, v.name, v.category, v.market, v.specialty, v.rating,
+                    v.latitude AS lat, v.longitude AS lng, v.icon, v.image,
                     COALESCE((
                         SELECT GROUP_CONCAT(p.name, ' ')
                         FROM pwesto_products p
-                        WHERE p.vendor_id = pwesto_vendors.id AND p.active = 1
+                        WHERE p.vendor_id = v.id AND p.active = 1 AND p.stock > 0
+                          AND p.description NOT LIKE '%Sample dataset:%'
                     ), '') AS product_names,
-                    CASE WHEN owner_id IS NULL THEN 0 ELSE 1 END AS can_message,
-                    CASE WHEN image LIKE 'https://images.unsplash.com/%' THEN 1 ELSE 0 END AS is_sample_image,
-                    CASE WHEN EXISTS (
-                        SELECT 1 FROM pwesto_users owner
-                        WHERE owner.id = pwesto_vendors.owner_id AND owner.role = 'vendor'
-                    ) THEN 1 ELSE 0 END AS can_order
-             FROM pwesto_vendors
-             WHERE status = 'approved'
-             ORDER BY category, stall_code, name"
+                    CASE WHEN v.owner_id IS NULL THEN 0 ELSE 1 END AS can_message,
+                    CASE WHEN v.image LIKE 'https://images.unsplash.com/%' THEN 1 ELSE 0 END AS is_sample_image,
+                    CASE WHEN " . $this->orderableVendorCondition('v') . " THEN 1 ELSE 0 END AS can_order
+             FROM pwesto_vendors v
+             WHERE v.status = 'approved'
+               AND " . $this->orderableVendorCondition('v') . "
+             ORDER BY v.category, v.stall_code, v.name"
         );
         return array_map([$this, 'formatVendor'], $query->fetchAll());
+    }
+
+    private function orderableVendorCondition($vendorAlias)
+    {
+        return "EXISTS (
+                    SELECT 1 FROM pwesto_users orderable_owner
+                    WHERE orderable_owner.id = {$vendorAlias}.owner_id
+                      AND orderable_owner.role = 'vendor'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM pwesto_products orderable_product
+                    WHERE orderable_product.vendor_id = {$vendorAlias}.id
+                      AND orderable_product.active = 1
+                      AND orderable_product.stock > 0
+                      AND orderable_product.description NOT LIKE '%Sample dataset:%'
+                )";
     }
 
     public function assistantCatalog()
@@ -192,7 +208,9 @@ class Pwesto_store
                     p.price_cents, p.stock
              FROM pwesto_vendors v
              LEFT JOIN pwesto_products p ON p.vendor_id = v.id AND p.active = 1
+                    AND p.stock > 0 AND p.description NOT LIKE '%Sample dataset:%'
              WHERE v.status = 'approved'
+               AND " . $this->orderableVendorCondition('v') . "
              ORDER BY v.name, p.name"
         );
         return $query->fetchAll();
@@ -203,13 +221,12 @@ class Pwesto_store
         $query = $this->pdo->prepare(
             "SELECT id, stall_code, name, category, market, specialty, rating, latitude AS lat,
                     longitude AS lng, icon, image,
-                    CASE WHEN owner_id IS NULL THEN 0 ELSE 1 END AS can_message,
-                    CASE WHEN image LIKE 'https://images.unsplash.com/%' THEN 1 ELSE 0 END AS is_sample_image,
-                    CASE WHEN EXISTS (
-                        SELECT 1 FROM pwesto_users owner
-                        WHERE owner.id = pwesto_vendors.owner_id AND owner.role = 'vendor'
-                    ) THEN 1 ELSE 0 END AS can_order
-             FROM pwesto_vendors WHERE id = :id AND status = 'approved' LIMIT 1"
+                    CASE WHEN v.owner_id IS NULL THEN 0 ELSE 1 END AS can_message,
+                    CASE WHEN v.image LIKE 'https://images.unsplash.com/%' THEN 1 ELSE 0 END AS is_sample_image,
+                    CASE WHEN " . $this->orderableVendorCondition('v') . " THEN 1 ELSE 0 END AS can_order
+             FROM pwesto_vendors v
+             WHERE v.id = :id AND v.status = 'approved'
+               AND " . $this->orderableVendorCondition('v') . " LIMIT 1"
         );
         $query->execute(['id' => $id]);
         $vendor = $query->fetch();
@@ -224,6 +241,8 @@ class Pwesto_store
              FROM pwesto_products p
              INNER JOIN pwesto_vendors v ON v.id = p.vendor_id
              WHERE p.vendor_id = :vendor_id AND v.status = 'approved' AND p.active = 1
+               AND p.stock > 0 AND p.description NOT LIKE '%Sample dataset:%'
+               AND " . $this->orderableVendorCondition('v') . "
              ORDER BY p.name"
         );
         $query->execute(['vendor_id' => $vendorId]);
@@ -235,8 +254,11 @@ class Pwesto_store
         $query = $this->pdo->prepare(
             "SELECT p.image FROM pwesto_products p
              INNER JOIN pwesto_vendors v ON v.id = p.vendor_id
-             WHERE p.id = :id AND p.active = 1 AND v.status = 'approved'
-             LIMIT 1"
+            WHERE p.id = :id AND p.active = 1 AND p.stock > 0
+              AND p.description NOT LIKE '%Sample dataset:%'
+              AND v.status = 'approved'
+              AND " . $this->orderableVendorCondition('v') . "
+            LIMIT 1"
         );
         $query->execute(['id' => $productId]);
         $image = $query->fetchColumn();
@@ -1221,32 +1243,36 @@ class Pwesto_store
         $query->execute(['email' => $email]);
         $user = $query->fetch();
         if (!$user) {
-            return null;
+            return ['status' => 'not_found'];
         }
 
-        $cutoff = date('Y-m-d H:i:s', time() - 60);
+        $cutoff = $this->isMysql()
+            ? 'DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 60 SECOND)'
+            : "datetime('now', '-60 seconds')";
         $recent = $this->pdo->prepare(
-            'SELECT 1 FROM pwesto_password_resets WHERE user_id = :user_id AND created_at >= :cutoff LIMIT 1'
+            'SELECT 1 FROM pwesto_password_resets WHERE user_id = :user_id AND created_at >= ' . $cutoff . ' LIMIT 1'
         );
-        $recent->execute(['user_id' => $user['id'], 'cutoff' => $cutoff]);
+        $recent->execute(['user_id' => $user['id']]);
         if ($recent->fetchColumn()) {
-            return null;
+            return ['status' => 'rate_limited'];
         }
 
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);
+        $expiresAt = $this->isMysql()
+            ? 'DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 1 HOUR)'
+            : "datetime('now', '+1 hour')";
         $this->pdo->beginTransaction();
         try {
             $delete = $this->pdo->prepare('DELETE FROM pwesto_password_resets WHERE user_id = :user_id');
             $delete->execute(['user_id' => $user['id']]);
             $insert = $this->pdo->prepare(
                 'INSERT INTO pwesto_password_resets (token_hash, user_id, expires_at, created_at)
-                 VALUES (:token_hash, :user_id, :expires_at, CURRENT_TIMESTAMP)'
+                 VALUES (:token_hash, :user_id, ' . $expiresAt . ', CURRENT_TIMESTAMP)'
             );
             $insert->execute([
                 'token_hash' => $tokenHash,
                 'user_id' => $user['id'],
-                'expires_at' => date('Y-m-d H:i:s', time() + 3600),
             ]);
             $this->pdo->commit();
         } catch (Throwable $error) {
@@ -1257,6 +1283,7 @@ class Pwesto_store
         }
 
         return [
+            'status' => 'created',
             'token' => $token,
             'token_hash' => $tokenHash,
             'email' => $user['email'],
@@ -2584,7 +2611,7 @@ class Pwesto_store
 
     private function retireBuiltInDemoStalls()
     {
-        $demoIds = ['fresh-harvest', 'isla-seafood', 'kusina-gulay', 'lola-marias', 'bukid-meats', 'petal-street'];
+        $demoIds = ['isla-seafood', 'kusina-gulay', 'lola-marias', 'petal-street'];
         $placeholders = implode(', ', array_fill(0, count($demoIds), '?'));
 
         $products = $this->pdo->prepare(
@@ -2602,6 +2629,87 @@ class Pwesto_store
              WHERE id IN ($placeholders) AND owner_id IS NULL AND status = 'approved'"
         );
         $vendors->execute($demoIds);
+    }
+
+    private function configureConfirmedStalls()
+    {
+        $stalls = [
+            [
+                'id' => 'bukid-meats',
+                'name' => 'Meat 001',
+                'category' => 'Meat',
+                'stall_code' => 'MEAT-001',
+                'email' => trim((string) (getenv('PWESTO_MEAT_VENDOR_EMAIL') ?: '')),
+            ],
+            [
+                'id' => 'fresh-harvest',
+                'name' => 'Fruit 001',
+                'category' => 'Fruit',
+                'stall_code' => 'FRU-001',
+                'email' => trim((string) (getenv('PWESTO_FRUIT_VENDOR_EMAIL') ?: '')),
+            ],
+        ];
+
+        $findStall = $this->pdo->prepare(
+            'SELECT owner_id, name, category, stall_code, status
+             FROM pwesto_vendors WHERE id = :id LIMIT 1'
+        );
+        $findAccount = $this->pdo->prepare(
+            'SELECT id, role FROM pwesto_users
+             WHERE LOWER(email) = LOWER(:email) LIMIT 1'
+        );
+        $findOtherStall = $this->pdo->prepare(
+            'SELECT id FROM pwesto_vendors WHERE owner_id = :owner_id AND id != :stall_id LIMIT 1'
+        );
+        $updateStall = $this->pdo->prepare(
+            "UPDATE pwesto_vendors
+             SET owner_id = :owner_id, name = :name, category = :category,
+                 stall_code = :stall_code, status = :status
+             WHERE id = :id"
+        );
+
+        foreach ($stalls as $stall) {
+            $findStall->execute(['id' => $stall['id']]);
+            $existing = $findStall->fetch();
+            if (!$existing) {
+                error_log('Pwesto confirmed stall is missing: ' . $stall['id'] . '.');
+                continue;
+            }
+
+            if ($stall['email'] === '' || !filter_var($stall['email'], FILTER_VALIDATE_EMAIL)) {
+                error_log('Set the confirmed vendor email environment variable for stall ' . $stall['id'] . '.');
+                continue;
+            }
+
+            $findAccount->execute(['email' => $stall['email']]);
+            $account = $findAccount->fetch();
+            if (!$account || $account['role'] !== 'vendor') {
+                error_log('Pwesto confirmed vendor account is missing or is not a vendor: ' . $stall['id'] . '.');
+                continue;
+            }
+
+            $findOtherStall->execute([
+                'owner_id' => $account['id'],
+                'stall_id' => $stall['id'],
+            ]);
+            if ($findOtherStall->fetchColumn()) {
+                error_log('Pwesto confirmed vendor account is linked to another stall: ' . $stall['id'] . '.');
+                continue;
+            }
+
+            if ($existing['owner_id'] !== $account['id'] || $existing['name'] !== $stall['name']
+                || $existing['category'] !== $stall['category'] || $existing['stall_code'] !== $stall['stall_code']
+                || $existing['status'] !== 'approved') {
+                $updateStall->execute([
+                    'owner_id' => $account['id'],
+                    'name' => $stall['name'],
+                    'category' => $stall['category'],
+                    'stall_code' => $stall['stall_code'],
+                    'status' => 'approved',
+                    'id' => $stall['id'],
+                ]);
+            }
+        }
     }
 
     private function retireMisnamedDuplicateStall()

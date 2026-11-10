@@ -44,13 +44,26 @@ user. Without a persistent disk, SQLite data on Render can be lost when the
 service restarts or redeploys. Do not set `DB_HOST=localhost` on Render;
 localhost there refers to the Render container, not your computer.
 
-To restore the six approved local sample stall listings, temporarily set
-`PWESTO_RESTORE_APPROVED_STALLS=1` on the Render service and deploy this
-version. The restore is idempotent: it inserts missing sample stalls and
-approves the matching existing sample rows without changing their other fields.
-It does not copy user accounts. Unowned listings cannot accept orders until a
-real vendor account claims or replaces them. Remove the variable after
-confirming the listings appear.
+The backend does not restore sample stall listings. The schema migration retires
+the four extra sample stalls, preserving their rows and order history. It
+configures the existing `bukid-meats` and `fresh-harvest` records as `Meat 001`
+and `Fruit 001`, using the vendor emails in `PWESTO_MEAT_VENDOR_EMAIL` and
+`PWESTO_FRUIT_VENDOR_EMAIL`. Set those variables to the existing vendor accounts
+before deploying. Public stall and product listings require an approved vendor
+account and at least one active, in-stock, non-sample product. Restore real
+product data only from a trusted production backup; do not invent products or
+copy user credentials from a local database.
+
+### Gmail email delivery
+
+Set `PWESTO_MAIL_USERNAME` to the Gmail account, `PWESTO_MAIL_PASSWORD` to its
+Google App Password (not the normal account password), and `PWESTO_APP_URL` to
+the public Pwesto URL. `PWESTO_MAIL_FROM` is optional and defaults to the Gmail
+username. For Render, configure these in the backend service's Environment
+settings and redeploy. A reset request deliberately uses a generic response for
+unknown accounts and rate-limited requests; check Render logs for
+`Pwesto password reset not sent` to distinguish those cases without exposing
+email addresses.
 
 ### Google sign-in on Render
 

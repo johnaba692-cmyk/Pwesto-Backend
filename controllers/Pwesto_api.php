@@ -578,7 +578,8 @@ class Pwesto_api extends Controller
         $reset = $this->store_call(function () use ($email) {
             return $this->store->createPasswordResetRequest($email);
         }, 'Password reset is temporarily unavailable. Please try again later.');
-        if ($reset === null) {
+        if ($reset['status'] !== 'created') {
+            error_log('Pwesto password reset not sent: ' . $reset['status'] . '.');
             $this->respond($genericResponse);
         }
 
@@ -593,6 +594,7 @@ class Pwesto_api extends Controller
             . $resetUrl . "\n\nIf you did not request this, ignore this email.";
         try {
             $mailer->send($reset['email'], $reset['name'], 'Reset your Pwesto password', $html, $text);
+            error_log('Pwesto password reset message accepted by Gmail SMTP.');
         } catch (Throwable $error) {
             $this->store_call(function () use ($reset) {
                 $this->store->deletePasswordReset($reset['token_hash']);
@@ -1914,7 +1916,7 @@ class Pwesto_api extends Controller
             $vendorId = $body['vendor_id'] ?? '';
             $email = $this->normalized_email($body['email'] ?? null);
             $name = $body['name'] ?? '';
-            if (!is_string($vendorId) || !preg_match('/^[a-f0-9]{24}$/', $vendorId)
+            if (!is_string($vendorId) || !preg_match('/^[a-z0-9][a-z0-9-]{0,63}$/i', $vendorId)
                 || $email === null || !is_string($name) || strlen(trim($name)) < 2 || strlen($name) > 120) {
                 $this->respond(['error' => 'Enter the vendor’s real name and a valid email address for this stall.'], 422);
             }
