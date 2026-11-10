@@ -2125,6 +2125,10 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                             <div class="form-full" style="display:flex;gap:8px;flex-wrap:wrap"><button class="button button-primary button-small" id="merchantSubmit" type="submit">Submit rental request <span aria-hidden="true">→</span></button><button class="button button-light button-small" id="cancelVendorEdit" type="button" style="display:none">Cancel edit</button></div>
                         </form>
                     </section>
+                    <section class="merchant-card">
+                        <div class="merchant-card-heading"><div><h3>Your application &amp; rent payment</h3><p>Your application appears here before it is approved or listed on the market. Pay the first month’s rent here to make it ready for admin review.</p></div></div>
+                        <div class="merchant-vendors" id="vendorRentalApplications"></div>
+                    </section>
                 </div>
                 </div>
                 <section class="merchant-card vendor-orders-card vendor-page" data-vendor-page="vendor-orders">
@@ -2153,7 +2157,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 </div>
                 <div class="admin-workspace">
                     <section class="admin-queue">
-                        <div class="admin-queue-heading"><div><h3>Rental applications</h3><p>Approval requires all documents and verified first-month rent.</p></div><span id="adminQueueCount" class="admin-queue-count">0 to review</span></div>
+                        <div class="admin-queue-heading"><div><h3>Rental applications</h3><p>Approval requires all documents and verified first-month rent.</p></div><span id="adminQueueCount" class="admin-queue-count">0 to review</span><button class="merchant-edit-button" type="button" id="refreshAdminDashboard">Refresh applications</button></div>
                         <div id="adminApplications"></div>
                     </section>
                 </div>
@@ -2556,7 +2560,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                     listings: ['My stall', 'Manage your stall profile and listing status.'],
                     products: ['Product catalog', 'Browse and manage the products customers can see.'],
                     'add-product': ['Add product', 'Enter a new product for one of your stalls.'],
-                    'vendor-application': ['Rental application', 'Submit or update your stall details and required documents.'],
+                    'vendor-application': ['Rental application', 'Submit your application, then pay the first-month rent here before admin approval.'],
                     messages: ['Customer messages', 'Reply to neighbors asking about your stall and products.'],
                     'vendor-orders': ['Customer orders', 'Review and update orders placed with your stall.']
                 };
@@ -3135,6 +3139,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
             }
             function renderMyVendors() {
                 const target = $('merchantVendorList');
+                const rentalTarget = $('vendorRentalApplications');
                 const live = state.myVendors.filter(vendor => vendor.status === 'approved').length;
                 const pending = state.myVendors.filter(vendor => vendor.status === 'pending').length;
                 renderVendorProfile();
@@ -3151,24 +3156,40 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                             : 'Your latest application was not approved. Review the stall details and submit an updated listing for the market team.';
                 if (!state.user) {
                     target.innerHTML = '<p class="booking-empty">Sign in to submit and manage your market stalls.</p>';
+                    rentalTarget.innerHTML = '<p class="booking-empty">Sign in to submit a rental application and pay the first month’s rent.</p>';
                     refreshProductVendorOptions();
                     return;
                 }
-                target.innerHTML = state.myVendors.length
-                    ? state.myVendors.map(vendor => {
+                if (!state.myVendors.length) {
+                    target.innerHTML = '<p class="booking-empty">You haven’t submitted a stall yet.</p>';
+                    rentalTarget.innerHTML = '<p class="booking-empty">Submit your rental application and required documents above. Your application will appear here with its rent payment option.</p>';
+                    refreshProductVendorOptions();
+                    renderConversations();
+                    return;
+                }
+                const vendorRows = state.myVendors.map(vendor => {
                         const documentsReady = Number(vendor.has_application) && Number(vendor.has_cedula) && Number(vendor.has_photo);
                         const paymentStatus = vendor.rental_payment_status || 'unpaid';
                         const paymentAction = paymentStatus === 'paid'
                             ? `<span class="admin-payment-state is-paid">Paid until ${escapeHtml(vendor.rental_paid_until || 'the end of this month')}</span>`
                             : vendor.rental_checkout_url
                                 ? `<a class="merchant-payment-button" href="${escapeHtml(vendor.rental_checkout_url)}" target="_blank" rel="noopener noreferrer">Continue Xendit checkout</a><button type="button" class="merchant-payment-check" data-check-payment="${escapeHtml(vendor.id)}">Check payment</button>`
-                                : `<button type="button" class="merchant-payment-button" data-rental-payment="${escapeHtml(vendor.id)}">Pay ₱${Number(state.rentalFee || 7000).toLocaleString('en-PH')} monthly</button>`;
+                                : documentsReady
+                                    ? `<button type="button" class="merchant-payment-button" data-rental-payment="${escapeHtml(vendor.id)}">Pay ₱${Number(state.rentalFee || 7000).toLocaleString('en-PH')} monthly</button>`
+                                    : '<span class="merchant-payment-state">Upload all required documents before paying.</span>';
                         const requirementsText = documentsReady ? 'Application, cedula, and 2×2 photo submitted' : 'Required documents are incomplete';
                         const paymentConfigText = state.paymentConfigured || paymentStatus === 'paid' ? '' : 'Xendit checkout awaits server configuration.';
                         const requirementsForm = `<details class="vendor-requirements-update"><summary>${documentsReady ? 'Replace submitted documents' : 'Upload missing requirements'}</summary><p>Choose one or more files to add or replace. Only Pwesto administrators can view these private documents.</p><form data-update-vendor-docs="${escapeHtml(vendor.id)}"><input type="hidden" name="vendor_id" value="${escapeHtml(vendor.id)}"><label>Application form · PDF/JPEG/PNG${Number(vendor.has_application) ? '' : ' · missing'}<input type="file" name="application_document" accept="application/pdf,image/jpeg,image/png"></label><label>Barangay cedula · PDF/JPEG/PNG${Number(vendor.has_cedula) ? '' : ' · missing'}<input type="file" name="cedula_document" accept="application/pdf,image/jpeg,image/png"></label><label>2×2 photo · square JPEG/PNG${Number(vendor.has_photo) ? '' : ' · missing'}<input type="file" name="photo_document" accept="image/jpeg,image/png"></label><button type="submit" class="merchant-edit-button">Save requirements</button></form></details>`;
-                        return `<div class="merchant-vendor-row"><div class="merchant-vendor-name"><span class="merchant-vendor-icon" aria-hidden="true">⌂</span><span><strong>${escapeHtml(vendor.stall_code || 'Code pending')} · ${escapeHtml(vendor.name)}</strong><small>${escapeHtml(vendor.category)} · ${escapeHtml(vendor.market)}<br>${escapeHtml(vendor.specialty)}<br>${requirementsText}</small></span></div><div class="merchant-row-actions"><span class="status-pill ${vendor.status === 'pending' ? 'status-pending' : vendor.status === 'rejected' ? 'status-rejected' : ''}">${escapeHtml(vendor.status)}</span><button type="button" class="merchant-edit-button" data-manage-products="${escapeHtml(vendor.id)}">Manage products</button><button type="button" class="merchant-edit-button" data-edit-vendor="${escapeHtml(vendor.id)}">Edit</button><span class="merchant-payment-actions">${paymentAction}</span><span class="merchant-payment-state">${escapeHtml(paymentConfigText || ('Monthly fee · ' + paymentStatus))}</span>${requirementsForm}</div></div>`;
-                    }).join('')
-                    : '<p class="booking-empty">You haven’t submitted a stall yet.</p>';
+                        const applicationName = `${escapeHtml(vendor.stall_code || 'Code pending')} · ${escapeHtml(vendor.name)}`;
+                        const applicationStatus = `<span class="status-pill ${vendor.status === 'pending' ? 'status-pending' : vendor.status === 'rejected' ? 'status-rejected' : ''}">${escapeHtml(vendor.status)}</span>`;
+                        const paymentState = `<span class="merchant-payment-state">${escapeHtml(paymentConfigText || ('Monthly fee · ' + paymentStatus))}</span>`;
+                        return {
+                            listing: `<div class="merchant-vendor-row"><div class="merchant-vendor-name"><span class="merchant-vendor-icon" aria-hidden="true">⌂</span><span><strong>${applicationName}</strong><small>${escapeHtml(vendor.category)} · ${escapeHtml(vendor.market)}<br>${escapeHtml(vendor.specialty)}<br>${requirementsText}</small></span></div><div class="merchant-row-actions">${applicationStatus}<button type="button" class="merchant-edit-button" data-manage-products="${escapeHtml(vendor.id)}">Manage products</button><button type="button" class="merchant-edit-button" data-edit-vendor="${escapeHtml(vendor.id)}">Edit</button><span class="merchant-payment-actions">${paymentAction}</span>${paymentState}${requirementsForm}</div></div>`,
+                            payment: `<div class="merchant-vendor-row"><div class="merchant-vendor-name"><span class="merchant-vendor-icon" aria-hidden="true">⌂</span><span><strong>${applicationName}</strong><small>${escapeHtml(vendor.category)} · ${escapeHtml(vendor.market)}<br>${requirementsText}</small></span></div><div class="merchant-row-actions">${applicationStatus}<span class="merchant-payment-actions">${paymentAction}</span>${paymentState}</div></div>`
+                        };
+                    });
+                target.innerHTML = vendorRows.map(row => row.listing).join('');
+                rentalTarget.innerHTML = vendorRows.map(row => row.payment).join('');
                 refreshProductVendorOptions();
                 renderConversations();
             }
@@ -4061,10 +4082,10 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 passwordResetToken = '';
                 setAuthMode('login');
             });
-            $('merchantCta').addEventListener('click', () => {
+            $('merchantCta').addEventListener('click', async () => {
                 showDashboardPanel('vendor');
                 showVendorSection('vendor-application');
-                renderMyVendors();
+                await loadMyVendors();
             });
             $('customerExploreButton').addEventListener('click', () => {
                 $('discoverTab').click();
@@ -4078,6 +4099,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 event.preventDefault();
                 updateRoleDashboard();
             });
+            $('refreshAdminDashboard').addEventListener('click', loadAdminDashboard);
             $('refreshAdminStorage').addEventListener('click', loadAdminStorage);
             document.querySelector('.dashboard-sidebar-nav').addEventListener('click', event => {
                 const button = event.target.closest('[data-dashboard-nav]');
@@ -4113,6 +4135,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 } else if (destination === 'vendor-application') {
                     showDashboardPanel('vendor');
                     showVendorSection('vendor-application');
+                    loadMyVendors();
                 } else if (destination === 'vendor-orders') {
                     showDashboardPanel('vendor');
                     showVendorSection('vendor-orders');
@@ -4171,7 +4194,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                     }
                 }
             });
-            $('merchantVendorList').addEventListener('click', async event => {
+            $('merchantView').addEventListener('click', async event => {
                 const payButton = event.target.closest('[data-rental-payment]');
                 const checkButton = event.target.closest('[data-check-payment]');
                 const button = payButton || checkButton;
