@@ -135,7 +135,6 @@ class Pwesto_cloudinary_storage
         $response = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
         $curlError = curl_error($handle);
-        curl_close($handle);
         if (!is_string($response)) {
             error_log('Pwesto Cloudinary download failed: ' . $curlError);
             throw new RuntimeException('Cloudinary could not be reached.');

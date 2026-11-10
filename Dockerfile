@@ -2,6 +2,8 @@ ARG PHP_VERSION=8.5
 
 FROM php:${PHP_VERSION}-apache
 
+ENV APP_ENV=production
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY docker-entrypoint.sh /usr/local/bin/pwesto-entrypoint
 

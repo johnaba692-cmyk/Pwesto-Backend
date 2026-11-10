@@ -2036,7 +2036,6 @@ class Pwesto_api extends Controller
             $responseBody = curl_exec($curl);
             $status = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
             $curlError = curl_error($curl);
-            curl_close($curl);
             if ($responseBody === false) {
                 error_log('Pwesto Google sign-in verification failed: ' . $curlError);
                 $this->respond(['error' => 'Google sign-in could not be reached. Please try again shortly.'], 502);

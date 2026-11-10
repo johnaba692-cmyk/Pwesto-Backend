@@ -110,7 +110,6 @@ class Pwesto_assistant extends Controller
             $responseBody = curl_exec($handle);
             $lastCurlError = curl_error($handle);
             $lastStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
-            curl_close($handle);
 
             if ($responseBody === false) {
                 continue;
