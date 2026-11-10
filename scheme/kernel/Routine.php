@@ -162,6 +162,43 @@ if ( ! function_exists('show_error'))
 
 if ( ! function_exists('_shutdown_handler'))
 {
+	function _pwesto_is_api_request()
+	{
+		$path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+		return is_string($path) && preg_match('~(?:^|/)api(?:/|$)~', $path) === 1;
+	}
+
+	function _pwesto_log_api_failure($label, $message, $file, $line)
+	{
+		$message = preg_replace('/[\r\n]+/', ' ', (string) $message);
+		$message = preg_replace(
+			'/(password|secret|token|authorization)\s*[:=]\s*\S+/i',
+			'$1=[redacted]',
+			$message
+		);
+		error_log(
+			'Pwesto API ' . $label . ': ' . $message
+			. ' at ' . basename((string) $file) . ':' . (int) $line
+		);
+	}
+
+	function _pwesto_respond_api_failure()
+	{
+		if (!headers_sent()) {
+			while (ob_get_level() > 0) {
+				if (!ob_end_clean()) {
+					break;
+				}
+			}
+			http_response_code(500);
+			header('Content-Type: application/json; charset=utf-8');
+			header('Cache-Control: no-store');
+			echo json_encode([
+				'error' => 'The server could not complete this request. Please try again later.',
+			], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		}
+	}
+
 	/**
 	 * For Debugging
 	 * @return string
@@ -172,6 +209,16 @@ if ( ! function_exists('_shutdown_handler'))
 		if (isset($last_error) &&
 			($last_error['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_CORE_WARNING | E_COMPILE_ERROR | E_COMPILE_WARNING)))
 		{
+			if (_pwesto_is_api_request()) {
+				_pwesto_log_api_failure(
+					'fatal error',
+					$last_error['message'],
+					$last_error['file'],
+					$last_error['line']
+				);
+				_pwesto_respond_api_failure();
+				return;
+			}
 			_error_handler($last_error['type'], $last_error['message'], $last_error['file'], $last_error['line']);
 		}
 	}
@@ -186,6 +233,16 @@ if ( ! function_exists('_exception_handler'))
 	 */
 	function _exception_handler($e)
 	{
+		if (_pwesto_is_api_request()) {
+			_pwesto_log_api_failure(
+				'uncaught exception ' . get_class($e),
+				$e->getMessage(),
+				$e->getFile(),
+				$e->getLine()
+			);
+			_pwesto_respond_api_failure();
+			return;
+		}
 		if(config_item('log_threshold') == 1 || config_item('log_threshold') == 3)
 		{
 			$logger = load_class('logger', 'kernel');
