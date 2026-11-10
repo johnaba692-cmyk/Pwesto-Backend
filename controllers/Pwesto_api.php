@@ -787,8 +787,6 @@ class Pwesto_api extends Controller
 
     private function present_product_images(array $products, $ownerId = null)
     {
-        $scriptDirectory = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
-        $basePath = $scriptDirectory === '/' || $scriptDirectory === '.' ? '' : rtrim($scriptDirectory, '/');
         foreach ($products as &$product) {
             $product['is_sample'] = !empty($product['is_sample']);
             $image = $product['image'] ?? null;
@@ -796,7 +794,7 @@ class Pwesto_api extends Controller
                 && is_string($product['id'] ?? null)
                 && preg_match('/^[a-f0-9]{32}$/', $product['id'])) {
                 $imagePath = $ownerId === null ? '/api/products/image' : '/api/vendors/products/image';
-                $product['image_url'] = $basePath . $imagePath . '?product_id=' . rawurlencode($product['id']);
+                $product['image_url'] = $imagePath . '?product_id=' . rawurlencode($product['id']);
             } else {
                 $product['image_url'] = is_string($image) && preg_match('/^[a-f0-9]{32}\.(jpg|png|webp)$/', $image)
                 ? $basePath . '/uploads/pwesto-products/' . $image
@@ -1447,11 +1445,7 @@ class Pwesto_api extends Controller
         $files = $this->store_call(function () {
             return $this->store->adminStorageFiles();
         }, 'Storage files could not be loaded.');
-        $scriptDirectory = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
-        $basePath = $scriptDirectory === '/' || $scriptDirectory === '.'
-            ? ''
-            : rtrim($scriptDirectory, '/');
-        $apiBase = $basePath . '/api';
+        $apiBase = '/api';
 
         $products = [];
         foreach ($files['products'] as $product) {

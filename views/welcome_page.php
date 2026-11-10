@@ -2017,7 +2017,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
                 <div class="content-grid">
                     <section class="vendor-panel" aria-label="Nearby vendor stalls">
                         <div class="panel-header"><strong>Stalls near you</strong><span id="resultCount">Loading stalls…</span></div>
-                        <div class="vendor-list" id="vendorList" data-api-base="<?php echo htmlspecialchars($appBasePath . '/api', ENT_QUOTES, 'UTF-8'); ?>" aria-live="polite"></div>
+                        <div class="vendor-list" id="vendorList" data-api-base="/api" aria-live="polite"></div>
                     </section>
                     <section class="map-panel" aria-label="Calapan City Public Market map">
                         <div class="panel-header">
@@ -2294,7 +2294,7 @@ $reactJsVersion = is_file($reactJsPath) ? filemtime($reactJsPath) : 1;
         (function () {
             'use strict';
             document.documentElement.classList.add('js');
-            const apiBase = <?php echo json_encode($appBasePath . '/api', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const apiBase = '/api';
             const googleClientId = <?php echo json_encode($google_client_id ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
             const featuredMarket = { name: 'Calapan City Public Market', address: 'Calapan City, Oriental Mindoro, Philippines', lat: 13.4118, lng: 121.1809 };
             const defaultCenter = [featuredMarket.lat, featuredMarket.lng];
