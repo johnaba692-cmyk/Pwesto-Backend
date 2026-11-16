@@ -500,7 +500,7 @@ class Pwesto_api extends Controller
             $this->respond(['error' => 'Your account could not be created. Please try again.'], 503);
         }
 
-        $this->start_user_session($user);
+        $this->start_user_session($user, false);
     }
 
     public function email_sign_in()
@@ -629,14 +629,16 @@ class Pwesto_api extends Controller
         $this->respond(['success' => true, 'message' => 'Your password has been updated. You can now sign in.']);
     }
 
-    private function start_user_session(array $user)
+    private function start_user_session(array $user, $loadAccountData = true)
     {
         $this->session->regenerate_on_login(true);
         $this->session->set_userdata('pwesto_user', $user);
         $this->session->set_userdata('pwesto_csrf', bin2hex(random_bytes(32)));
-        $accountData = $this->store_call(function () use ($user) {
-            return $this->store->accountSessionData($user['id']);
-        }, 'Your account data could not be loaded.');
+        $accountData = $loadAccountData
+            ? $this->store_call(function () use ($user) {
+                return $this->store->accountSessionData($user['id']);
+            }, 'Your account data could not be loaded.')
+            : ['favorites' => [], 'appointments' => []];
         $this->respond([
             'user' => $user,
             'csrf_token' => $_SESSION['pwesto_csrf'],

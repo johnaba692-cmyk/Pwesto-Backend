@@ -1215,7 +1215,13 @@ class Pwesto_store
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
             'role' => $role,
         ]);
-        return $this->publicUserById($id);
+        return [
+            'id' => $id,
+            'email' => $email,
+            'name' => $name,
+            'picture' => '',
+            'role' => $role,
+        ];
     }
 
     public function grantAdminRole($userId)
