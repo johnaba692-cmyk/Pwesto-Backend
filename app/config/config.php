@@ -262,7 +262,9 @@ $config['session_hmac_secret']     = getenv('APP_KEY') ?: '';
 $config['cookie_prefix']           = '';
 $config['cookie_domain']           = '';
 $config['cookie_path']             = '/';
-$config['cookie_secure']           = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+// Render terminates HTTPS at its proxy, so in production also trust X-Forwarded-Proto.
+$config['cookie_secure']           = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (getenv('APP_ENV') === 'production' && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
 $config['cookie_expiration']       = 86400;
 $config['cookie_httponly']         = TRUE;
 $config['cookie_samesite']         = 'Strict';
@@ -388,7 +390,7 @@ $config['security_headers'] = [
     // ── Transport ──
     'hsts_max_age'    => 31536000,
     'hsts_subdomains' => true,
-    'trust_proxy'     => false,
+    'trust_proxy'     => getenv('APP_ENV') === 'production',
 
     // ── Browser features ──
     'permissions_policy' => 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), '

@@ -98,7 +98,7 @@ Set `GOOGLE_CLIENT_ID` to the OAuth 2.0 **Web application** client ID and add
 every origin where the sign-in page opens to **Authorized JavaScript origins**:
 
 ```text
-https://pwesto-backend.onrender.com
+https://pwesto-backend-2.onrender.com
 https://pwesto-frontend.onrender.com
 http://127.0.0.1:3000
 http://localhost:3000
