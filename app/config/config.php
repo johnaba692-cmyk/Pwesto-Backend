@@ -57,7 +57,6 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | -------------------------------------------------------------------
 */
 $config['version']                 = '4.7.0';
-$config['google_client_id']         = getenv('GOOGLE_CLIENT_ID') ?: '909310328792-oog0gr9npon9ghjcn640c63iohgqhmod.apps.googleusercontent.com';
 
 /*
 | -------------------------------------------------------------------
@@ -115,7 +114,7 @@ $config['proxy_enabled']           = FALSE;
 |
 */
 $config['log_threshold']            = 0;
-$config['log_dir']                  = 'runtime/logs/';
+$config['log_dir']                  = ROOT_DIR . 'runtime/logs/';
 
 /*
 |--------------------------------------------------------------------------
@@ -135,9 +134,9 @@ $config['log_dir']                  = 'runtime/logs/';
 | For more information about Composer, please visit http://getcomposer.org/
 |
 | Note: This will NOT disable or override the LavaLust-specific
-|	autoloading (Pwesto Backend/config/autoload.php)
+|	autoloading (app/config/autoload.php)
 */
-$config['composer_autoload']        = FALSE;
+$config['composer_autoload']        = TRUE;
 
 /*
 |--------------------------------------------------------------------------
@@ -176,7 +175,7 @@ $config['charset']					= 'UTF-8';
 | Error Views Directory Path
 |--------------------------------------------------------------------------
 |
-| Pwesto Backend/views/errors/ directory. Use a full server path with trailing slash.
+| app/views/errors/ directory. Use a full server path with trailing slash.
 |
 */
 $config['error_view_path']         	= '';
@@ -398,7 +397,8 @@ $config['security_headers'] = [
     'coop'               => 'same-origin-allow-popups',
 
     // ── API ──
-    'api_max_body' => 1048576,
+    // Vendor applications upload three 2 MB documents; product images are up to 5 MB.
+    'api_max_body' => 8388608,
     'cors' => [
         'allowed_origins' => [],
         'credentials'     => false,

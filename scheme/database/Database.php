@@ -271,9 +271,11 @@ class Database {
         );
 
         if ($driver === 'mysql') {
-            $mysqlAttributeClass = PHP_VERSION_ID >= 80500 ? 'Pdo\\Mysql' : 'PDO';
-            $mysqlAttribute = static function ($name) use ($mysqlAttributeClass) {
-                $constantName = $mysqlAttributeClass . '::' . $name;
+            // PHP 8.5+ exposes Pdo\Mysql::ATTR_*; older versions use PDO::MYSQL_ATTR_*.
+            $mysqlAttribute = static function ($name) {
+                $constantName = PHP_VERSION_ID >= 80500
+                    ? 'Pdo\\Mysql::' . $name
+                    : 'PDO::MYSQL_' . $name;
                 return defined($constantName) ? constant($constantName) : null;
             };
             $foundRowsAttribute = $mysqlAttribute('ATTR_FOUND_ROWS');
@@ -291,7 +293,7 @@ class Database {
                 $configuredCaFile,
                 '/etc/secrets/aiven-ca.pem',
                 '/etc/secrets/ca.pem',
-                ROOT_DIR . 'config' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
+                APP_DIR . 'config' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
                 ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
             ]);
             $caFile = '';

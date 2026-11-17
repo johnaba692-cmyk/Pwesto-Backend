@@ -65,7 +65,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 |  Auto-load Libraries
 | -------------------------------------------------------------------
 | These are the classes located in scheme/libraries/ or your
-| Pwesto Backend/libraries/ directory, with the addition of the
+| app/libraries/ directory, with the addition of the
 | 'database' library, which is somewhat of a special case.
 |
 | Prototype:
@@ -82,7 +82,7 @@ $autoload['libraries'] = array();
 |
 |	$autoload['helpers'] = array('url', 'file');
 */
-$autoload['helpers'] = array();
+$autoload['helpers'] = array('pwesto');
 
 /*
 | -------------------------------------------------------------------
@@ -106,5 +106,5 @@ $autoload['models'] = array();
 | config files.  Otherwise, leave it blank.
 |
 */
-$autoload['configs'] = array();
+$autoload['configs'] = array('pwesto');
 ?>

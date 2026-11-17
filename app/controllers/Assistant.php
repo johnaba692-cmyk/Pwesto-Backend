@@ -1,36 +1,36 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
-class Pwesto_assistant extends Controller
+/**
+ * Shopping assistant: answers common project questions directly and uses
+ * Gemini with the live public catalog as context for everything else.
+ */
+class Assistant extends MY_Controller
 {
-    private $session;
-
-    public function __construct()
+    public function before_action()
     {
-        parent::__construct();
-        $this->session = $this->call->library('session');
+        parent::before_action();
+        $this->call->model('VendorModel');
+        $this->call->library('gemini');
     }
 
-    public function index()
+    /** GET /api/assistant */
+    public function status()
     {
-        $method = $_SERVER['REQUEST_METHOD'] ?? '';
-        if ($method === 'GET') {
-            $this->ensure_csrf_token();
-            $this->respond([
-                'csrf_token' => $this->session->userdata('pwesto_csrf'),
-                'configured' => (bool) (getenv('GEMINI_API_KEY') ?: ''),
-            ]);
-        }
-        if ($method !== 'POST') {
-            header('Allow: GET, POST');
-            $this->respond(['error' => 'Method not allowed.'], 405);
-        }
+        $this->respond([
+            'csrf_token' => $this->csrf_token(),
+            'configured' => $this->gemini->configured(),
+        ]);
+    }
 
+    /** POST /api/assistant (JSON: message, history) */
+    public function ask()
+    {
         $this->verify_csrf_token();
-        $body = $this->json_body();
-        $message = isset($body['message']) && is_string($body['message']) ? trim($body['message']) : '';
+        $body = $this->input();
+        $message = $this->string_input($body, 'message');
         if ($message === '' || strlen($message) > 12000) {
-            $this->respond(['error' => 'Enter a message up to 3,000 characters long.'], 422);
+            $this->fail('Enter a message up to 3,000 characters long.', 422);
         }
 
         $history = $this->validated_history($body['history'] ?? []);
@@ -39,119 +39,35 @@ class Pwesto_assistant extends Controller
         if ($projectAnswer !== null) {
             $this->respond(['answer' => $projectAnswer]);
         }
-        $catalogRows = $this->assistant_catalog_rows();
+        $catalogRows = $this->db_call(function () {
+            return $this->VendorModel->catalog_rows();
+        }, 'The market catalog could not be loaded for the assistant. Please try again later.');
         $budgetAnswer = $this->assistant_budget_answer($message, $catalogRows);
         if ($budgetAnswer !== null) {
             $this->respond(['answer' => $budgetAnswer]);
         }
-        $catalogContext = $this->assistant_catalog_context($message, $catalogRows);
-        $apiKey = trim((string) (getenv('GEMINI_API_KEY') ?: ''));
-        if ($apiKey === '') {
-            $this->respond([
-                'error' => $this->assistant_is_filipino($message)
-                    ? 'Hindi naka-configure ang AI assistant ngayon. Subukan ulit mamaya.'
-                    : 'The AI assistant is not configured right now. Please try again later.',
-            ], 503);
-        }
-        if (!function_exists('curl_init')) {
-            error_log('Pwesto Gemini assistant requires the PHP cURL extension.');
-            $this->respond([
-                'error' => $this->assistant_is_filipino($message)
-                    ? 'Hindi makakonekta ang AI assistant ngayon. Pakisubukan ulit mamaya.'
-                    : 'The assistant is temporarily unavailable. Please try again later.',
-            ], 503);
+        $filipino = $this->assistant_is_filipino($message);
+        if (!$this->gemini->configured()) {
+            $this->fail($filipino
+                ? 'Hindi naka-configure ang AI assistant ngayon. Subukan ulit mamaya.'
+                : 'The AI assistant is not configured right now. Please try again later.', 503);
         }
 
-        $contents = [];
-        foreach ($history as $item) {
-            $contents[] = [
-                'role' => $item['role'],
-                'parts' => [['text' => $item['text']]],
-            ];
+        $answer = $this->gemini->answer(
+            $this->assistant_instructions() . "\n\n" . $this->assistant_catalog_context($message, $catalogRows),
+            $history,
+            $message
+        );
+        if ($answer === null) {
+            $this->fail($filipino
+                ? 'Pansamantalang abala ang AI ngayon. Subukan ulit mamaya; kung tungkol ito sa pag-order, rent, o requirements, itanong ang eksaktong hakbang.'
+                : 'The assistant is temporarily busy. Please try again later.', 503);
         }
-        $contents[] = ['role' => 'user', 'parts' => [['text' => $message]]];
-
-        $payload = [
-            'systemInstruction' => [
-                'parts' => [[
-                    'text' => $this->assistant_instructions() . "\n\n" . $catalogContext,
-                ]],
-            ],
-            'contents' => $contents,
-            'generationConfig' => [
-                'maxOutputTokens' => 1200,
-                'temperature' => 0.6,
-            ],
-        ];
-
-        $result = null;
-        $lastStatus = 0;
-        $lastCurlError = '';
-        foreach (['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'] as $model) {
-            $handle = curl_init(
-                'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent'
-            );
-            curl_setopt_array($handle, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => false,
-                CURLOPT_CONNECTTIMEOUT => 8,
-                CURLOPT_TIMEOUT => 25,
-                CURLOPT_SSL_VERIFYPEER => true,
-                CURLOPT_SSL_VERIFYHOST => 2,
-                CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-                CURLOPT_HTTPHEADER => [
-                    'Accept: application/json',
-                    'Content-Type: application/json',
-                    'x-goog-api-key: ' . $apiKey,
-                ],
-            ]);
-            $responseBody = curl_exec($handle);
-            $lastCurlError = curl_error($handle);
-            $lastStatus = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
-
-            if ($responseBody === false) {
-                continue;
-            }
-            $candidateResult = json_decode($responseBody, true);
-            if ($lastStatus >= 200 && $lastStatus < 300 && is_array($candidateResult)) {
-                $result = $candidateResult;
-                break;
-            }
-            if (in_array($lastStatus, [400, 401, 403], true)) {
-                break;
-            }
-        }
-
-        if ($result === null) {
-            error_log(
-                'Pwesto Gemini request failed after model fallbacks (HTTP '
-                . $lastStatus . ($lastCurlError !== '' ? ', ' . $lastCurlError : '') . ').'
-            );
-            $this->respond([
-                'error' => $this->assistant_is_filipino($message)
-                    ? 'Pansamantalang abala ang AI ngayon. Subukan ulit mamaya; kung tungkol ito sa pag-order, rent, o requirements, itanong ang eksaktong hakbang.'
-                    : 'The assistant is temporarily busy. Please try again later.',
-            ], 503);
-        }
-
-        $parts = $result['candidates'][0]['content']['parts'] ?? [];
-        $answer = '';
-        foreach ($parts as $part) {
-            if (isset($part['text']) && is_string($part['text'])) {
-                $answer .= $part['text'];
-            }
-        }
-        $answer = trim($answer);
         if ($answer === '') {
-            $this->respond([
-                'error' => $this->assistant_is_filipino($message)
-                    ? 'Walang nabuong sagot ang assistant. Pakiulit o linawin ang tanong.'
-                    : 'The assistant did not return an answer. Please rephrase your question and try again.',
-            ], 502);
+            $this->fail($filipino
+                ? 'Walang nabuong sagot ang assistant. Pakiulit o linawin ang tanong.'
+                : 'The assistant did not return an answer. Please rephrase your question and try again.', 502);
         }
-
         $this->respond(['answer' => $answer]);
     }
 
@@ -226,17 +142,6 @@ class Pwesto_assistant extends Controller
             '/\b(ako|alin|ang|ano|anu|atin|ayaw|ba|bakit|balita|bat|bale|bilhin|bili|buhay|dahil|di|dito|doon|filipino|gusto|hindi|ilang|ito|iyan|iyon|kami|kayo|kailangan|kasya|kumusta|lang|magkano|maki|makabili|mabili|mabibili|man|may|meron|mo|mga|na|naman|namin|natin|nito|niya|n\'yo|o|oo|pa|paano|pano|para|pero|po|pwede|puwede|saan|sa|sakin|siya|sila|tagalog|taglish|tayo|tinda|tungkol|wala|yung)\b/iu',
             $message
         ) === 1;
-    }
-
-    private function assistant_catalog_rows()
-    {
-        require_once APP_DIR . 'libraries' . DIRECTORY_SEPARATOR . 'Pwesto_store.php';
-        try {
-            return (new Pwesto_store())->assistantCatalog();
-        } catch (Throwable $error) {
-            error_log('Pwesto assistant catalog lookup failed: ' . $error->getMessage());
-            $this->respond(['error' => 'The market catalog could not be loaded for the assistant. Please try again later.'], 503);
-        }
     }
 
     private function assistant_budget_answer($message, array $rows)
@@ -582,7 +487,7 @@ class Pwesto_assistant extends Controller
     private function validated_history($history)
     {
         if (!is_array($history) || count($history) > 4) {
-            $this->respond(['error' => 'Conversation history is invalid. Start a new chat and try again.'], 422);
+            $this->fail('Conversation history is invalid. Start a new chat and try again.', 422);
         }
         $validated = [];
         foreach ($history as $item) {
@@ -592,7 +497,7 @@ class Pwesto_assistant extends Controller
                 || !is_string($item['text'])
                 || trim($item['text']) === ''
                 || strlen($item['text']) > 4000) {
-                $this->respond(['error' => 'Conversation history is invalid. Start a new chat and try again.'], 422);
+                $this->fail('Conversation history is invalid. Start a new chat and try again.', 422);
             }
             $validated[] = ['role' => $item['role'], 'text' => trim($item['text'])];
         }
@@ -613,47 +518,9 @@ class Pwesto_assistant extends Controller
         }
         if (count($recent) >= 10) {
             header('Retry-After: 600');
-            $this->respond(['error' => 'You have reached the chat limit for now. Please try again in a few minutes.'], 429);
+            $this->fail('You have reached the chat limit for now. Please try again in a few minutes.', 429);
         }
         $recent[] = $now;
         $this->session->set_userdata('pwesto_assistant_requests', $recent);
-    }
-
-    private function ensure_csrf_token()
-    {
-        if (!$this->session->has_userdata('pwesto_csrf')) {
-            $this->session->set_userdata('pwesto_csrf', bin2hex(random_bytes(32)));
-        }
-    }
-
-    private function verify_csrf_token()
-    {
-        $expected = $this->session->userdata('pwesto_csrf');
-        $provided = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        if (!is_string($expected) || !is_string($provided) || $provided === '' || !hash_equals($expected, $provided)) {
-            $this->respond(['error' => 'Your session has expired. Refresh the page and try again.'], 403);
-        }
-    }
-
-    private function json_body()
-    {
-        $raw = file_get_contents('php://input', false, null, 0, 40961);
-        if ($raw !== false && strlen($raw) > 40960) {
-            $this->respond(['error' => 'Request body is too large.'], 413);
-        }
-        $body = json_decode($raw === false ? '' : $raw, true);
-        if (!is_array($body)) {
-            $this->respond(['error' => 'A valid JSON request body is required.'], 400);
-        }
-        return $body;
-    }
-
-    private function respond($data, $status = 200)
-    {
-        http_response_code($status);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store');
-        echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        exit;
     }
 }

@@ -1,30 +1,26 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
-require_once ROOT_DIR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
-
 use PHPMailer\PHPMailer\PHPMailer;
 
-class Pwesto_mailer
+/**
+ * Gmail SMTP mailer built on PHPMailer (Composer). Settings come from
+ * config_item('mail') in app/config/pwesto.php.
+ *
+ * Load with: $this->call->library('mailer');
+ */
+class Mailer
 {
-    public function isConfigured()
-    {
-        return $this->configurationError() === null;
-    }
-
     public function configurationError()
     {
-        $username = $this->setting('PWESTO_MAIL_USERNAME');
-        $password = $this->setting('PWESTO_MAIL_PASSWORD');
-        $from = $this->senderAddress();
-        $port = $this->setting('PWESTO_MAIL_PORT') ?: '587';
-
-        if ($username === '' || $password === '') {
+        $settings = $this->settings();
+        if ($settings['username'] === '' || $settings['password'] === '') {
             return 'Set the Gmail address and Google App Password in PWESTO_MAIL_USERNAME and PWESTO_MAIL_PASSWORD.';
         }
-        if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
+        if (!filter_var($this->senderAddress(), FILTER_VALIDATE_EMAIL)) {
             return 'Set a valid Gmail address in PWESTO_MAIL_USERNAME or PWESTO_MAIL_FROM.';
         }
+        $port = $settings['port'];
         if (!ctype_digit($port) || (int) $port < 1 || (int) $port > 65535) {
             return 'PWESTO_MAIL_PORT must be a valid TCP port.';
         }
@@ -41,20 +37,18 @@ class Pwesto_mailer
             throw new InvalidArgumentException('A valid email recipient is required.');
         }
 
+        $settings = $this->settings();
         $mail = new PHPMailer(true);
         $mail->isSMTP();
-        $mail->Host = $this->setting('PWESTO_MAIL_HOST') ?: 'smtp.gmail.com';
-        $mail->Port = (int) ($this->setting('PWESTO_MAIL_PORT') ?: '587');
+        $mail->Host = $settings['host'];
+        $mail->Port = (int) $settings['port'];
         $mail->SMTPAuth = true;
         $mail->Timeout = 15;
-        $mail->Username = $this->setting('PWESTO_MAIL_USERNAME');
-        $mail->Password = preg_replace('/\s+/', '', $this->setting('PWESTO_MAIL_PASSWORD'));
+        $mail->Username = $settings['username'];
+        $mail->Password = preg_replace('/\s+/', '', $settings['password']);
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->CharSet = PHPMailer::CHARSET_UTF8;
-        $mail->setFrom(
-            $this->senderAddress(),
-            $this->setting('PWESTO_MAIL_FROM_NAME') ?: 'Pwesto'
-        );
+        $mail->setFrom($this->senderAddress(), $settings['from_name']);
         $mail->addAddress($recipient, $recipientName);
         $mail->isHTML(true);
         $mail->Subject = $subject;
@@ -63,14 +57,21 @@ class Pwesto_mailer
         $mail->send();
     }
 
-    private function setting($key)
+    private function settings()
     {
-        $value = getenv($key);
-        return is_string($value) ? trim($value) : '';
+        return array_merge([
+            'host' => 'smtp.gmail.com',
+            'port' => '587',
+            'username' => '',
+            'password' => '',
+            'from' => '',
+            'from_name' => 'Pwesto',
+        ], (array) config_item('mail'));
     }
 
     private function senderAddress()
     {
-        return $this->setting('PWESTO_MAIL_FROM') ?: $this->setting('PWESTO_MAIL_USERNAME');
+        $settings = $this->settings();
+        return $settings['from'] !== '' ? $settings['from'] : $settings['username'];
     }
 }

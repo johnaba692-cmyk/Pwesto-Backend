@@ -57,13 +57,25 @@ define('PREVENT_DIRECT_ACCESS', TRUE);
 	$public_folder			= 'public';
 
 /*
+ *---------------------------------------------------------------
+ * APPLICATION FOLDER NAME
+ *---------------------------------------------------------------
+ *
+ * The folder that holds controllers, models, views, libraries, helpers
+ * and configuration files.
+ *
+ * NO TRAILING SLASH!
+ */
+	$application_folder	= 'app';
+
+/*
  * ------------------------------------------------------
  * Define Application Constants
  * ------------------------------------------------------
  */
 define('ROOT_DIR',  dirname(__DIR__) . DIRECTORY_SEPARATOR);
 define('SYSTEM_DIR', ROOT_DIR . $system_path . DIRECTORY_SEPARATOR);
-define('APP_DIR', ROOT_DIR);
+define('APP_DIR', ROOT_DIR . $application_folder . DIRECTORY_SEPARATOR);
 define('PUBLIC_DIR', $public_folder);
 
 if (PHP_SAPI === 'cli-server') {

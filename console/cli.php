@@ -2,9 +2,9 @@
 <?php
 (PHP_SAPI !== 'cli' || isset($_SERVER['HTTP_USER_AGENT'])) && die('CLI only');
 
-define('APP_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR);
-define('PUBLIC_DIR', APP_DIR . 'public' . DIRECTORY_SEPARATOR);
-define('RUNTIME_DIR', APP_DIR . 'runtime' . DIRECTORY_SEPARATOR);
+define('APP_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR);
+define('PUBLIC_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR);
+define('RUNTIME_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR);
 define('COMMANDS_DIR', APP_DIR . 'commands' . DIRECTORY_SEPARATOR);
 
 // Command Registry
@@ -414,7 +414,7 @@ function handle_route_list() {
  */
 function handle_key_generate() {
     $key        = bin2hex(random_bytes(32)); // 64-char hex key
-    $env_file   = APP_DIR . '.env';
+    $env_file   = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.env';
 
     echo success("Generated key: {$key}") . PHP_EOL;
 
@@ -449,7 +449,7 @@ function handle_key_generate() {
  * @return void
  */
 function handle_jwt_generate($input = null, array $flags = []) {
-    $env_file = APP_DIR . '.env';
+    $env_file = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.env';
     $force    = !empty($flags['force']);
     $show     = !empty($flags['show']);
 
@@ -531,7 +531,7 @@ function env_file_set($env, $name, $value) {
  * @return void
  */
 function handle_env_check() {
-    $env_file = APP_DIR . '.env';
+    $env_file = dirname(__DIR__) . DIRECTORY_SEPARATOR . '.env';
 
     echo "\033[1;34mEnvironment Summary\033[0m" . PHP_EOL;
     echo str_repeat('─', 50) . PHP_EOL;

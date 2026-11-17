@@ -1,37 +1,38 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
-require_once ROOT_DIR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
-
-class Pwesto_cloudinary_storage
+/**
+ * Cloudinary storage for product images (public) and vendor requirement
+ * documents (authenticated). Settings come from config_item('cloudinary');
+ * the Cloudinary SDK is provided by Composer autoloading.
+ *
+ * Load with: $this->call->library('cloudinary_storage');
+ */
+class Cloudinary_storage
 {
-    private $cloudinary;
+    /** @var \Cloudinary\Cloudinary|null */
+    private $client;
 
-    public function __construct()
+    public static function isProductObject($publicId)
     {
-        $cloudName = getenv('CLOUDINARY_CLOUD_NAME');
-        $apiKey = getenv('CLOUDINARY_API_KEY');
-        $apiSecret = getenv('CLOUDINARY_API_SECRET');
-        if (!is_string($cloudName) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/', $cloudName)
-            || !is_string($apiKey) || !preg_match('/^[A-Za-z0-9]{1,128}$/', $apiKey)
-            || !is_string($apiSecret) || trim($apiSecret) === '') {
-            throw new RuntimeException('Cloudinary is not configured.');
-        }
+        return is_string($publicId)
+            && preg_match('/^cloudinary\/products\/[A-Za-z0-9_-]{1,64}\/[a-f0-9]{32}$/', $publicId) === 1;
+    }
 
-        $this->cloudinary = new \Cloudinary\Cloudinary([
-            'cloud' => [
-                'cloud_name' => $cloudName,
-                'api_key' => trim($apiKey),
-                'api_secret' => trim($apiSecret),
-            ],
-        ]);
+    public static function isVendorDocumentObject($publicId)
+    {
+        return is_string($publicId)
+            && preg_match(
+                '~^(?:[A-Za-z0-9_-]{1,64}/)*vendor-requirements/[A-Za-z0-9_-]{1,64}/(application_document|cedula_document|photo_document)/[a-f0-9]{32}\.(pdf|jpg|png)$~',
+                $publicId
+            ) === 1;
     }
 
     public function upload($filePath, $publicId)
     {
         $this->assertObjectName($publicId);
         $isPrivate = self::isVendorDocumentObject($publicId);
-        $response = $this->cloudinary->uploadApi()->upload($filePath, [
+        $response = $this->client()->uploadApi()->upload($filePath, [
             'resource_type' => $isPrivate ? 'raw' : 'image',
             'type' => $isPrivate ? 'authenticated' : 'upload',
             'public_id' => $publicId,
@@ -44,10 +45,7 @@ class Pwesto_cloudinary_storage
         $storedId = $response['public_id'] ?? null;
         $expectedSuffix = substr($publicId, strlen('cloudinary/'));
         if (!is_string($storedId)
-            || !preg_match(
-                '~^(?:[A-Za-z0-9_-]{1,64}/)*' . preg_quote($expectedSuffix, '~') . '$~',
-                $storedId
-            )) {
+            || !preg_match('~^(?:[A-Za-z0-9_-]{1,64}/)*' . preg_quote($expectedSuffix, '~') . '$~', $storedId)) {
             throw new RuntimeException('Cloudinary returned an unexpected asset identifier.');
         }
         return $storedId;
@@ -60,7 +58,7 @@ class Pwesto_cloudinary_storage
             $url = $this->publicImageUrl($publicId);
         } else {
             $extension = strtolower(pathinfo($publicId, PATHINFO_EXTENSION));
-            $url = $this->cloudinary->uploadApi()->privateDownloadUrl($publicId, $extension, [
+            $url = $this->client()->uploadApi()->privateDownloadUrl($publicId, $extension, [
                 'resource_type' => 'raw',
                 'type' => 'authenticated',
                 'expires_at' => time() + 60,
@@ -73,7 +71,7 @@ class Pwesto_cloudinary_storage
     {
         $this->assertObjectName($publicId);
         $isPrivate = self::isVendorDocumentObject($publicId);
-        $response = $this->cloudinary->uploadApi()->destroy($publicId, [
+        $response = $this->client()->uploadApi()->destroy($publicId, [
             'resource_type' => $isPrivate ? 'raw' : 'image',
             'type' => $isPrivate ? 'authenticated' : 'upload',
             'invalidate' => true,
@@ -83,31 +81,48 @@ class Pwesto_cloudinary_storage
         }
     }
 
-    public function publicImageUrl($publicId)
+    /** Delete without failing the request; cleanup errors are only logged. */
+    public function deleteQuietly($publicId)
     {
-        if (!self::isProductObject($publicId)) {
-            throw new RuntimeException('Cloudinary product image identifier is invalid.');
+        if (!self::isProductObject($publicId) && !self::isVendorDocumentObject($publicId)) {
+            return;
         }
-        $cloudName = $this->cloudinary->configuration->cloud->cloudName;
-        $segments = explode('/', $publicId);
-        $encodedId = implode('/', array_map('rawurlencode', $segments));
-        return 'https://res.cloudinary.com/' . rawurlencode($cloudName)
-            . '/image/upload/' . $encodedId;
+        try {
+            $this->delete($publicId);
+        } catch (Throwable $error) {
+            error_log('Pwesto Cloudinary cleanup failed: ' . $error->getMessage());
+        }
     }
 
-    public static function isProductObject($publicId)
+    private function publicImageUrl($publicId)
     {
-        return is_string($publicId)
-            && preg_match('/^cloudinary\/products\/[A-Za-z0-9_-]{1,64}\/[a-f0-9]{32}$/', $publicId);
+        $cloudName = $this->client()->configuration->cloud->cloudName;
+        $encodedId = implode('/', array_map('rawurlencode', explode('/', $publicId)));
+        return 'https://res.cloudinary.com/' . rawurlencode($cloudName) . '/image/upload/' . $encodedId;
     }
 
-    public static function isVendorDocumentObject($publicId)
+    private function client()
     {
-        return is_string($publicId)
-            && preg_match(
-                '~^(?:[A-Za-z0-9_-]{1,64}/)*vendor-requirements/[A-Za-z0-9_-]{1,64}/(application_document|cedula_document|photo_document)/[a-f0-9]{32}\.(pdf|jpg|png)$~',
-                $publicId
-            );
+        if ($this->client !== null) {
+            return $this->client;
+        }
+        $settings = (array) config_item('cloudinary');
+        $cloudName = $settings['cloud_name'] ?? '';
+        $apiKey = $settings['api_key'] ?? '';
+        $apiSecret = $settings['api_secret'] ?? '';
+        if (!preg_match('/^[A-Za-z0-9_-]{1,128}$/', $cloudName)
+            || !preg_match('/^[A-Za-z0-9]{1,128}$/', $apiKey)
+            || $apiSecret === '') {
+            throw new RuntimeException('Cloudinary is not configured.');
+        }
+        $this->client = new \Cloudinary\Cloudinary([
+            'cloud' => [
+                'cloud_name' => $cloudName,
+                'api_key' => $apiKey,
+                'api_secret' => $apiSecret,
+            ],
+        ]);
+        return $this->client;
     }
 
     private function assertObjectName($publicId)
@@ -123,9 +138,6 @@ class Pwesto_cloudinary_storage
             throw new RuntimeException('PHP cURL is required for Cloudinary file downloads.');
         }
         $handle = curl_init($url);
-        if ($handle === false) {
-            throw new RuntimeException('Cloudinary download request could not be initialized.');
-        }
         curl_setopt_array($handle, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
@@ -139,9 +151,8 @@ class Pwesto_cloudinary_storage
         ]);
         $response = curl_exec($handle);
         $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($handle);
         if (!is_string($response)) {
-            error_log('Pwesto Cloudinary download failed: ' . $curlError);
+            error_log('Pwesto Cloudinary download failed: ' . curl_error($handle));
             throw new RuntimeException('Cloudinary could not be reached.');
         }
         if ($status < 200 || $status >= 300) {
