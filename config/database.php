@@ -58,16 +58,23 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 */
 
 $database['main'] = array(
-    'driver'	=> getenv('DB_DRIVER') ?: '',
+    'driver'	=> getenv('PWESTO_DB_DRIVER') ?: (getenv('DB_DRIVER') ?: 'sqlite'),
     'hostname'	=> getenv('DB_HOST') ?: '',
-    'port'		=> getenv('DB_PORT') ?: '',
+    'port'		=> getenv('DB_PORT') ?: '3306',
     'username'	=> getenv('DB_USER') ?: '',
     'password'	=> getenv('DB_PASSWORD') ?: '',
     'database'	=> getenv('DB_NAME') ?: '',
-    'charset'	=> getenv('DB_CHARSET') ?: '',
+    'charset'	=> getenv('DB_CHARSET') ?: 'utf8mb4',
     'dbprefix'	=> getenv('DB_PREFIX') ?: '',
-    // Optional for SQLite
-    'path'      => ''
+    'path'      => getenv('PWESTO_DB_PATH') ?: ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'pwesto.sqlite',
+    'ssl_ca'    => getenv('PWESTO_DB_SSL_CA') ?: '',
+    'emulate_prepares' => true
+);
+
+$database['pwesto_migration_source'] = array(
+    'driver' => 'sqlite',
+    'path' => getenv('PWESTO_DB_PATH') ?: ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'pwesto.sqlite',
+    'emulate_prepares' => false
 );
 
 ?>

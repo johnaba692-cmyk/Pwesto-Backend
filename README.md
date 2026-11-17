@@ -25,6 +25,8 @@ Pwesto uses SQLite by default. To use local Laragon MySQL, create a database
 and set `PWESTO_DB_DRIVER=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3306`,
 `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in `.env`. Loopback MySQL connections
 do not require a TLS CA file; remote MySQL connections require verified TLS.
+`Pwesto_store` uses LavaLust's configured database connection and keeps its
+PDO-based queries on that shared connection.
 For Render with Aiven MySQL, the backend image includes the Aiven CA
 certificate at `config/aiven-ca.pem` and uses it when no configured or Render
 Secret File CA path is readable. You can instead provide a Secret File named

@@ -6,25 +6,40 @@ class Pwesto_store
     private const CURRENT_SCHEMA_VERSION = 5;
 
     private $pdo;
+    private $frameworkDatabase;
     private $driver;
 
-    public function __construct()
+    public function __construct($frameworkDatabase = null)
     {
         if (!class_exists('PDO')) {
             throw new RuntimeException('PDO is required for the Pwesto database.');
         }
-        $this->driver = strtolower(getenv('PWESTO_DB_DRIVER') ?: 'sqlite');
+        $this->driver = strtolower(getenv('PWESTO_DB_DRIVER') ?: (getenv('DB_DRIVER') ?: 'sqlite'));
         if (!in_array($this->driver, ['sqlite', 'mysql'], true)) {
-            throw new RuntimeException('PWESTO_DB_DRIVER must be either sqlite or mysql.');
+            throw new RuntimeException('DB_DRIVER or PWESTO_DB_DRIVER must be either sqlite or mysql.');
         }
         if (!in_array($this->driver, PDO::getAvailableDrivers(), true)) {
             throw new RuntimeException('The PDO ' . ucfirst($this->driver) . ' extension is required for the Pwesto database.');
         }
 
-        if ($this->driver === 'mysql') {
-            $this->connectMysql();
-        } else {
-            $this->connectSqlite();
+        $this->prepareDatabaseStorage();
+        $this->frameworkDatabase = $frameworkDatabase === null
+            ? DB::connection()
+            : $frameworkDatabase;
+        if (!is_object($this->frameworkDatabase)
+            || !method_exists($this->frameworkDatabase, 'get_pdo_connection')) {
+            throw new RuntimeException('Pwesto_store requires a LavaLust database connection.');
+        }
+        $this->pdo = $this->frameworkDatabase->get_pdo_connection();
+        if (!($this->pdo instanceof PDO)) {
+            throw new RuntimeException('LavaLust did not provide a valid PDO connection.');
+        }
+        if (strtolower($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) !== $this->driver) {
+            throw new RuntimeException('The LavaLust database connection does not match the configured Pwesto driver.');
+        }
+        if ($this->driver === 'sqlite') {
+            $this->pdo->exec('PRAGMA foreign_keys = ON');
+            $this->pdo->exec('PRAGMA busy_timeout = 5000');
         }
         if (!$this->schemaIsCurrent()) {
             $this->createSchema();
@@ -41,10 +56,13 @@ class Pwesto_store
         return $this->pdo;
     }
 
-    private function connectSqlite()
+    private function prepareDatabaseStorage()
     {
-        $path = getenv('PWESTO_DB_PATH') ?: ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'pwesto.sqlite';
-        if ($path !== ':memory:') {
+        if ($this->driver === 'sqlite') {
+            $path = getenv('PWESTO_DB_PATH') ?: ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'pwesto.sqlite';
+            if ($path === ':memory:') {
+                return;
+            }
             $directory = dirname($path);
             if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
                 throw new RuntimeException('The Pwesto database directory could not be created.');
@@ -52,77 +70,21 @@ class Pwesto_store
             if (!is_writable($directory)) {
                 throw new RuntimeException('The Pwesto database directory is not writable.');
             }
+            return;
         }
 
-        $this->pdo = new PDO('sqlite:' . $path, null, null, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-        $this->pdo->exec('PRAGMA foreign_keys = ON');
-        $this->pdo->exec('PRAGMA busy_timeout = 5000');
-    }
-
-    private function connectMysql()
-    {
         $host = getenv('DB_HOST') ?: '';
         $port = getenv('DB_PORT') ?: '3306';
         $database = getenv('DB_NAME') ?: '';
         $username = getenv('DB_USER') ?: '';
         $password = getenv('DB_PASSWORD');
-        $isLocalHost = in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
-        $configuredCaFile = getenv('PWESTO_DB_SSL_CA') ?: '';
-        if ($configuredCaFile !== '' && !preg_match('/^(?:[A-Za-z]:[\\\\\/]|[\\\\\/]{2}|\/)/', $configuredCaFile)) {
-            $configuredCaFile = ROOT_DIR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $configuredCaFile);
-        }
-        $caCandidates = array_filter([
-            $configuredCaFile,
-            '/etc/secrets/aiven-ca.pem',
-            '/etc/secrets/ca.pem',
-            ROOT_DIR . 'config' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
-            ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
-        ]);
-        $caFile = '';
-        foreach ($caCandidates as $candidate) {
-            if (is_file($candidate) && is_readable($candidate)) {
-                $caFile = $candidate;
-                break;
-            }
-        }
         if ($host === '' || $database === '' || $username === '' || $password === false
-            || (!$isLocalHost && $password === '')) {
+            || ($host !== '' && !in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true) && $password === '')) {
             throw new RuntimeException('Set DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD in the local environment to connect Pwesto to MySQL.');
         }
         if (!ctype_digit((string) $port) || (int) $port < 1 || (int) $port > 65535) {
             throw new RuntimeException('DB_PORT must be a valid TCP port.');
         }
-        if (!$isLocalHost && $caFile === '') {
-            throw new RuntimeException('Set PWESTO_DB_SSL_CA to the readable Aiven CA certificate file to enable verified TLS.');
-        }
-
-        $mysqlAttributeClass = PHP_VERSION_ID >= 80500 ? 'Pdo\\Mysql' : 'PDO';
-        $mysqlAttribute = static function ($name) use ($mysqlAttributeClass) {
-            return constant($mysqlAttributeClass . '::' . $name);
-        };
-        $options = [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => true,
-            $mysqlAttribute('ATTR_FOUND_ROWS') => true,
-        ];
-        if (!$isLocalHost) {
-            if (!defined($mysqlAttributeClass . '::ATTR_SSL_CA')) {
-                throw new RuntimeException('The PDO MySQL TLS options are unavailable. Enable the PDO MySQL extension.');
-            }
-            $options[$mysqlAttribute('ATTR_SSL_CA')] = $caFile;
-            if (defined($mysqlAttributeClass . '::ATTR_SSL_VERIFY_SERVER_CERT')) {
-                $options[$mysqlAttribute('ATTR_SSL_VERIFY_SERVER_CERT')] = true;
-            }
-        }
-
-        $dsn = 'mysql:host=' . $host . ';port=' . (int) $port
-            . ';dbname=' . $database . ';charset=utf8mb4';
-        $this->pdo = new PDO($dsn, $username, $password, $options);
     }
 
     private function isMysql()

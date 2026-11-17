@@ -265,8 +265,54 @@ class Database {
         $options = array(
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
+            PDO::ATTR_EMULATE_PREPARES   => $driver === 'mysql'
+                ? (bool) ($database_config['emulate_prepares'] ?? false)
+                : false,
         );
+
+        if ($driver === 'mysql') {
+            $mysqlAttributeClass = PHP_VERSION_ID >= 80500 ? 'Pdo\\Mysql' : 'PDO';
+            $mysqlAttribute = static function ($name) use ($mysqlAttributeClass) {
+                $constantName = $mysqlAttributeClass . '::' . $name;
+                return defined($constantName) ? constant($constantName) : null;
+            };
+            $foundRowsAttribute = $mysqlAttribute('ATTR_FOUND_ROWS');
+            if ($foundRowsAttribute === null) {
+                throw new PDOException('The PDO MySQL connection options are unavailable.');
+            }
+            $options[$foundRowsAttribute] = true;
+
+            $isLocalHost = in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
+            $configuredCaFile = trim((string) ($database_config['ssl_ca'] ?? ''));
+            if ($configuredCaFile !== '' && !preg_match('/^(?:[A-Za-z]:[\\\\\/]|[\\\\\/]{2}|\/)/', $configuredCaFile)) {
+                $configuredCaFile = ROOT_DIR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $configuredCaFile);
+            }
+            $caCandidates = array_filter([
+                $configuredCaFile,
+                '/etc/secrets/aiven-ca.pem',
+                '/etc/secrets/ca.pem',
+                ROOT_DIR . 'config' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
+                ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'aiven-ca.pem',
+            ]);
+            $caFile = '';
+            foreach ($caCandidates as $candidate) {
+                if (is_file($candidate) && is_readable($candidate)) {
+                    $caFile = $candidate;
+                    break;
+                }
+            }
+            if (!$isLocalHost) {
+                $sslCaAttribute = $mysqlAttribute('ATTR_SSL_CA');
+                if ($caFile === '' || $sslCaAttribute === null) {
+                    throw new PDOException('Set PWESTO_DB_SSL_CA to a readable CA certificate to enable verified MySQL TLS.');
+                }
+                $options[$sslCaAttribute] = $caFile;
+                $sslVerifyAttribute = $mysqlAttribute('ATTR_SSL_VERIFY_SERVER_CERT');
+                if ($sslVerifyAttribute !== null) {
+                    $options[$sslVerifyAttribute] = true;
+                }
+            }
+        }
 
         try {
             $this->db = new PDO($dsn, $username, $password, $options);
@@ -280,6 +326,16 @@ class Database {
                 $e
             );
         }
+    }
+
+    /**
+     * Return the underlying PDO connection for application code that needs it.
+     *
+     * @return PDO
+     */
+    public function get_pdo_connection()
+    {
+        return $this->db;
     }
 
     /**

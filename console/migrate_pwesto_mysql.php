@@ -6,6 +6,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 define('ROOT_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR);
+define('SYSTEM_DIR', ROOT_DIR . 'scheme' . DIRECTORY_SEPARATOR);
 define('APP_DIR', ROOT_DIR);
 define('PREVENT_DIRECT_ACCESS', true);
 
@@ -29,6 +30,8 @@ if (is_file($envPath)) {
     }
 }
 
+require_once SYSTEM_DIR . 'kernel' . DIRECTORY_SEPARATOR . 'Routine.php';
+require_once SYSTEM_DIR . 'database' . DIRECTORY_SEPARATOR . 'Database.php';
 require_once APP_DIR . 'libraries' . DIRECTORY_SEPARATOR . 'Pwesto_store.php';
 
 $tables = [
@@ -57,12 +60,11 @@ if (strtolower(getenv('PWESTO_DB_DRIVER') ?: 'sqlite') !== 'mysql') {
 }
 
 try {
-    $targetStore = new Pwesto_store();
+    $targetDatabase = Database::instance('main');
+    $targetStore = new Pwesto_store($targetDatabase);
     $target = $targetStore->connection();
-    $source = new PDO('sqlite:' . $sourcePath, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $sourceDatabase = Database::instance('pwesto_migration_source');
+    $source = $sourceDatabase->get_pdo_connection();
 
     foreach ($tables as $table) {
         $source->query('SELECT 1 FROM "' . $table . '" LIMIT 1');
