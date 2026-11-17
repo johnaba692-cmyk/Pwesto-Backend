@@ -182,6 +182,119 @@ class MY_Controller extends Controller
     }
 
     /* ------------------------------------------------------------------
+     | Input validation (LavaLust Form_validation library)
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Validate request fields with the LavaLust Form_validation library and
+     * respond 422 with the first error. Form_validation reads $_POST, so the
+     * parsed body (JSON or multipart) is copied into $_POST first. Non-string
+     * values are replaced by '' so every rule receives plain text.
+     *
+     * Call once per request, before anything else loads form_validation.
+     */
+    protected function validate_input(array $body, array $rules, array $messages = [])
+    {
+        foreach (array_keys($rules) as $field) {
+            $name = explode('|', $field)[0];
+            $value = $body[$name] ?? '';
+            $_POST[$name] = is_string($value) || is_int($value) || is_float($value) ? trim((string) $value) : '';
+        }
+        $this->call->library('form_validation');
+        if (!$this->form_validation->validate($rules, $messages)) {
+            $this->fail($this->form_validation->get_errors()[0], 422);
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     | File uploads (LavaLust Upload library)
+     * ------------------------------------------------------------------ */
+
+    protected const IMAGE_UPLOAD = [
+        'extensions' => ['jpg', 'jpeg', 'png', 'webp'],
+        'mimes' => ['image/jpeg', 'image/png', 'image/webp'],
+        'is_image' => true,
+    ];
+    protected const DOCUMENT_UPLOAD = [
+        'extensions' => ['pdf', 'jpg', 'jpeg', 'png'],
+        'mimes' => ['application/pdf', 'image/jpeg', 'image/png'],
+        'is_image' => false,
+    ];
+    protected const PHOTO_UPLOAD = [
+        'extensions' => ['jpg', 'jpeg', 'png'],
+        'mimes' => ['image/jpeg', 'image/png'],
+        'is_image' => true,
+    ];
+
+    /**
+     * Receive $_FILES[$field] with the LavaLust Upload library: checks the real
+     * MIME type (finfo), an extension allow-list and the maximum size, then
+     * stores it under a random (encrypted) file name in $directory.
+     *
+     * @return array|null ['path', 'filename', 'extension', 'mime'] or null when optional and absent
+     */
+    protected function receive_upload($field, array $type, $maxMegabytes, $directory, $required = false, $missingMessage = 'Choose a file to upload.')
+    {
+        $file = $_FILES[$field] ?? null;
+        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            if ($required) {
+                $this->fail($missingMessage, 422);
+            }
+            return null;
+        }
+        if (in_array($file['error'] ?? null, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            $this->fail('The ' . str_replace('_', ' ', $field) . ' must be no larger than ' . $maxMegabytes . ' MB.', 413);
+        }
+
+        // One fresh Upload object per file: the loader returns a shared instance.
+        $this->call->library('upload');
+        $upload = clone $this->upload;
+        $upload->file = $file;
+        $upload->set_dir($directory)
+            ->allowed_extensions($type['extensions'])
+            ->allowed_mimes($type['mimes'])
+            ->max_size($maxMegabytes)
+            ->encrypt_name();
+        if ($type['is_image']) {
+            $upload->is_image();
+        }
+        if (!$upload->do_upload()) {
+            $error = $upload->get_errors()[0] ?? 'The file could not be uploaded.';
+            $this->fail('The ' . str_replace('_', ' ', $field) . ' was rejected: ' . $error, stripos($error, 'too large') !== false ? 413 : 422);
+        }
+
+        $path = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $upload->get_filename();
+        if ($directory === $this->upload_staging_dir()) {
+            // Staged copies are temporary: remove them when the request ends, even after an early exit.
+            register_shutdown_function(function () use ($path) {
+                if (is_file($path)) {
+                    @unlink($path);
+                }
+            });
+        }
+        $mime = mime_content_type($path);
+        if ($type['is_image']) {
+            $image = @getimagesize($path);
+            if ($image === false || $image[0] > 5000 || $image[1] > 5000 || $image[0] * $image[1] > 20000000) {
+                @unlink($path);
+                $this->fail('The ' . str_replace('_', ' ', $field) . ' is invalid or exceeds 5,000 × 5,000 pixels.', 422);
+            }
+        }
+        return [
+            'path' => $path,
+            'filename' => $upload->get_filename(),
+            'extension' => $upload->get_extension() === 'jpeg' ? 'jpg' : $upload->get_extension(),
+            'mime' => $mime,
+        ];
+    }
+
+    /** Private staging folder (outside the web root) for files sent on to Cloudinary. */
+    protected function upload_staging_dir()
+    {
+        return ROOT_DIR . 'runtime' . DIRECTORY_SEPARATOR . 'uploads';
+    }
+
+    /* ------------------------------------------------------------------
      | Small validation helpers shared by several controllers
      * ------------------------------------------------------------------ */
 

@@ -7,6 +7,11 @@ use PHPMailer\PHPMailer\PHPMailer;
  * Gmail SMTP mailer built on PHPMailer (Composer). Settings come from
  * config_item('mail') in app/config/pwesto.php.
  *
+ * Why not the built-in LavaLust Email library: it sends with PHP mail(),
+ * which (as the LavaLust docs state) has no SMTP authentication. Gmail
+ * requires authenticated SMTP over STARTTLS, so this wrapper uses the
+ * third-party PHPMailer package loaded through Composer autoloading.
+ *
  * Load with: $this->call->library('mailer');
  */
 class Mailer

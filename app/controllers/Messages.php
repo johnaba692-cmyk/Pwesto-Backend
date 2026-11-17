@@ -45,9 +45,13 @@ class Messages extends MY_Controller
         $user = $this->require_messaging_user();
         $this->verify_csrf_token();
         $body = $this->input();
-        $message = $this->string_input($body, 'message');
-        if ($message === '' || $this->text_length($message) > 2000) {
-            $this->fail('Write a message between 1 and 2,000 characters.', 422);
+        $messageError = 'Write a message between 1 and 2,000 characters.';
+        $this->validate_input($body, ['message|Message' => 'required|max_length[8000]'], [
+            'message' => ['required' => $messageError, 'max_length' => $messageError],
+        ]);
+        $message = $_POST['message'];
+        if ($this->text_length($message) > 2000) {
+            $this->fail($messageError, 422);
         }
 
         $conversationId = $body['conversation_id'] ?? null;

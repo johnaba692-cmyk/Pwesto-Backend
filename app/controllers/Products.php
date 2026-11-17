@@ -10,7 +10,7 @@ class Products extends MY_Controller
     {
         parent::before_action();
         $this->call->model(['VendorModel', 'ProductModel']);
-        $this->call->library(['cloudinary_storage', 'upload_validator']);
+        $this->call->library('cloudinary_storage');
     }
 
     /** GET /api/vendors/products?vendor_id= */
@@ -123,17 +123,19 @@ class Products extends MY_Controller
 
     private function validated_product(array $body)
     {
-        $name = $this->string_input($body, 'name');
-        $description = $this->string_input($body, 'description');
+        $nameError = 'Enter a product name between 2 and 100 characters.';
+        $this->validate_input($body, [
+            'name|Product name' => 'required|min_length[2]|max_length[100]',
+            'description|Product details' => 'max_length[500]',
+        ], [
+            'name' => ['required' => $nameError, 'min_length' => $nameError, 'max_length' => $nameError],
+            'description' => ['max_length' => 'Product details must be 500 characters or fewer.'],
+        ]);
+        $name = $_POST['name'];
+        $description = $_POST['description'];
         $price = $body['price'] ?? null;
         $stock = $body['stock'] ?? null;
 
-        if ($this->text_length($name) < 2 || $this->text_length($name) > 100) {
-            $this->fail('Enter a product name between 2 and 100 characters.', 422);
-        }
-        if ($this->text_length($description) > 500) {
-            $this->fail('Product details must be 500 characters or fewer.', 422);
-        }
         if (!is_string($price) && !is_int($price) && !is_float($price)) {
             $this->fail('Enter a valid product price in pesos.', 422);
         }
@@ -156,35 +158,25 @@ class Products extends MY_Controller
         ];
     }
 
-    /** Validate and upload the optional product image to Cloudinary. */
+    /**
+     * Receive the optional product image with the LavaLust Upload library
+     * (staged privately), then store it in Cloudinary.
+     */
     private function upload_image($vendorId)
     {
-        try {
-            $image = $this->upload_validator->validate('image', [
-                'max_bytes' => 5242880,
-                'types' => Upload_validator::IMAGE_TYPES,
-                'messages' => [
-                    'too_large' => 'Product images must be no larger than 5 MB.',
-                    'invalid' => 'The selected product image could not be uploaded. Choose a valid image and try again.',
-                    'type' => 'Product images must be JPEG, PNG, or WebP files.',
-                    'image' => 'The product image is invalid or exceeds 5,000 × 5,000 pixels.',
-                ],
-            ]);
-        } catch (Upload_rejected $rejected) {
-            $this->fail($rejected->getMessage(), $rejected->getCode());
-        }
+        $image = $this->receive_upload('image', self::IMAGE_UPLOAD, 5, $this->upload_staging_dir());
         if ($image === null) {
             return null;
         }
         try {
-            return $this->cloudinary_storage->upload(
-                $image['tmp_name'],
-                'cloudinary/products/' . $vendorId . '/' . random_id()
-            );
+            $objectName = $this->cloudinary_storage->upload($image['path'], 'cloudinary/products/' . $vendorId . '/' . random_id());
         } catch (Throwable $error) {
+            @unlink($image['path']);
             error_log('Pwesto product image upload failed: ' . $error->getMessage());
             $this->fail('The product image could not be saved to Cloudinary. Check its server configuration.', 503);
         }
+        @unlink($image['path']);
+        return $objectName;
     }
 
     /** Remove a replaced image from Cloudinary or the legacy local uploads folder. */

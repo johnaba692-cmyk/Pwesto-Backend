@@ -6,6 +6,23 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
  */
 class Auth extends MY_Controller
 {
+    /** Form_validation rules shared by registration and password reset. */
+    private const PASSWORD_RULES = [
+        'password|Password' => 'required|min_length[8]|max_length[72]',
+        'confirm_password|Password confirmation' => 'required|matches[password]',
+    ];
+    private const PASSWORD_MESSAGES = [
+        'password' => [
+            'required' => 'Choose a password between 8 and 72 characters.',
+            'min_length' => 'Choose a password between 8 and 72 characters.',
+            'max_length' => 'Choose a password between 8 and 72 characters.',
+        ],
+        'confirm_password' => [
+            'required' => 'Your passwords do not match.',
+            'matches' => 'Your passwords do not match.',
+        ],
+    ];
+
     public function before_action()
     {
         parent::before_action();
@@ -57,19 +74,19 @@ class Auth extends MY_Controller
         $this->verify_csrf_token();
         $this->api->rate_limit('auth:' . $this->client_ip(), 20, 60);
         $body = $this->input();
-        $email = $this->normalized_email($body['email'] ?? null);
-        $name = $this->string_input($body, 'name');
-        $password = $body['password'] ?? null;
-        $confirmation = $body['confirm_password'] ?? null;
+        $nameError = 'Enter your name (2 to 80 characters).';
+        $this->validate_input($body, [
+            'email|Email' => 'required|valid_email|max_length[254]',
+            'name|Name' => 'required|min_length[2]|max_length[80]',
+        ] + self::PASSWORD_RULES, [
+            'email' => ['required' => 'Enter a valid email address.', 'valid_email' => 'Enter a valid email address.', 'max_length' => 'Enter a valid email address.'],
+            'name' => ['required' => $nameError, 'min_length' => $nameError, 'max_length' => $nameError],
+        ] + self::PASSWORD_MESSAGES);
+        $email = $this->normalized_email($_POST['email']);
+        $name = $_POST['name'];
+        $password = $_POST['password'];
         $requestedRole = $body['role'] ?? 'customer';
 
-        if ($email === null) {
-            $this->fail('Enter a valid email address.', 422);
-        }
-        if ($this->text_length($name) < 2 || $this->text_length($name) > 80) {
-            $this->fail('Enter your name (2 to 80 characters).', 422);
-        }
-        $this->validate_new_password($password, $confirmation);
         if (!is_string($requestedRole) || !in_array($requestedRole, ['customer', 'vendor'], true)) {
             $this->fail('Choose a customer or vendor account.', 422);
         }
@@ -90,12 +107,16 @@ class Auth extends MY_Controller
         $this->verify_csrf_token();
         $ip = $this->client_ip();
         $this->api->rate_limit('auth:' . $ip, 20, 60);
-        $body = $this->input();
-        $email = $this->normalized_email($body['email'] ?? null);
-        $password = $body['password'] ?? null;
-        if ($email === null || !is_string($password) || $password === '' || strlen($password) > 72) {
-            $this->fail('Enter a valid email address and password.', 422);
-        }
+        $invalid = 'Enter a valid email address and password.';
+        $this->validate_input($this->input(), [
+            'email|Email' => 'required|valid_email|max_length[254]',
+            'password|Password' => 'required|max_length[72]',
+        ], [
+            'email' => ['required' => $invalid, 'valid_email' => $invalid, 'max_length' => $invalid],
+            'password' => ['required' => $invalid, 'max_length' => $invalid],
+        ]);
+        $email = $this->normalized_email($_POST['email']);
+        $password = $_POST['password'];
 
         $this->call->model('AuthAttemptModel');
         $unavailable = 'Sign-in is temporarily unavailable. Please try again later.';
@@ -196,8 +217,8 @@ class Auth extends MY_Controller
         if (!$this->is_hex_id($token, 64)) {
             $this->fail('This password reset link is invalid or expired. Request a new one.', 422);
         }
-        $password = $body['password'] ?? null;
-        $this->validate_new_password($password, $body['confirm_password'] ?? null);
+        $this->validate_input($body, self::PASSWORD_RULES, self::PASSWORD_MESSAGES);
+        $password = $_POST['password'];
 
         $this->call->model('PasswordResetModel');
         $reset = $this->db_call(function () use ($token, $password) {
@@ -230,16 +251,6 @@ class Auth extends MY_Controller
                 'appointments' => $this->AppointmentModel->for_user($userId),
             ];
         }, 'Your account data could not be loaded.');
-    }
-
-    private function validate_new_password($password, $confirmation)
-    {
-        if (!is_string($password) || strlen($password) < 8 || strlen($password) > 72) {
-            $this->fail('Choose a password between 8 and 72 characters.', 422);
-        }
-        if (!is_string($confirmation) || !hash_equals($password, $confirmation)) {
-            $this->fail('Your passwords do not match.', 422);
-        }
     }
 
     private function client_ip()

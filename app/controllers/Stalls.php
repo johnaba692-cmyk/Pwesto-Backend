@@ -22,7 +22,7 @@ class Stalls extends MY_Controller
     {
         parent::before_action();
         $this->call->model('VendorModel');
-        $this->call->library(['cloudinary_storage', 'upload_validator', 'xendit']);
+        $this->call->library(['cloudinary_storage', 'xendit']);
     }
 
     /** GET /api/vendors/mine */
@@ -240,48 +240,47 @@ class Stalls extends MY_Controller
 
     private function validated_stall(array $body, array $categories)
     {
-        $name = $this->string_input($body, 'name');
+        $nameError = 'Enter a stall name between 2 and 100 characters.';
+        $specialtyError = 'Describe your specialties in 5 to 240 characters.';
+        $this->validate_input($body, [
+            'name|Stall name' => 'required|min_length[2]|max_length[100]',
+            'specialty|Specialty' => 'required|min_length[5]|max_length[240]',
+        ], [
+            'name' => ['required' => $nameError, 'min_length' => $nameError, 'max_length' => $nameError],
+            'specialty' => ['required' => $specialtyError, 'min_length' => $specialtyError, 'max_length' => $specialtyError],
+        ]);
+        $name = $_POST['name'];
+        $specialty = $_POST['specialty'];
         $category = $body['category'] ?? '';
         $market = $body['market'] ?? '';
-        $specialty = $this->string_input($body, 'specialty');
-        if ($this->text_length($name) < 2 || $this->text_length($name) > 100) {
-            $this->fail('Enter a stall name between 2 and 100 characters.', 422);
-        }
         if (!is_string($category) || !in_array($category, $categories, true)) {
             $this->fail('Choose a valid stall category.', 422);
         }
         if (!is_string($market) || !in_array($market, $this->VendorModel->markets(), true)) {
             $this->fail('Choose a supported public market.', 422);
         }
-        if ($this->text_length($specialty) < 5 || $this->text_length($specialty) > 240) {
-            $this->fail('Describe your specialties in 5 to 240 characters.', 422);
-        }
         return ['name' => $name, 'category' => $category, 'market' => $market, 'specialty' => $specialty];
     }
 
+    /** Receive one requirement file with the LavaLust Upload library (staged privately). */
     private function validated_document($field, $kind, $required)
     {
-        try {
-            return $this->upload_validator->validate($field, [
-                'required' => $required,
-                'max_bytes' => 2097152,
-                'types' => $kind === 'photo' ? Upload_validator::PHOTO_TYPES : Upload_validator::DOCUMENT_TYPES,
-                'square_photo' => $kind === 'photo',
-                'messages' => [
-                    'missing' => 'Upload the application form, barangay cedula, and 2×2 photo to continue.',
-                    'too_large' => 'Each requirement document must be no larger than 2 MB.',
-                    'invalid' => $required
-                        ? 'Upload all three required files before submitting the application.'
-                        : 'The selected document could not be uploaded. Choose a valid file and try again.',
-                    'type' => $kind === 'photo'
-                        ? 'The 2×2 photo must be a JPEG or PNG image.'
-                        : 'Application form and cedula files must be PDF, JPEG, or PNG.',
-                    'image' => 'The uploaded image is invalid or exceeds 5,000 × 5,000 pixels.',
-                ],
-            ]);
-        } catch (Upload_rejected $rejected) {
-            $this->fail($rejected->getMessage(), $rejected->getCode());
+        $document = $this->receive_upload(
+            $field,
+            $kind === 'photo' ? self::PHOTO_UPLOAD : self::DOCUMENT_UPLOAD,
+            2,
+            $this->upload_staging_dir(),
+            $required,
+            'Upload the application form, barangay cedula, and 2×2 photo to continue.'
+        );
+        if ($document !== null && $kind === 'photo') {
+            $image = @getimagesize($document['path']);
+            if (!$image || $image[0] < 300 || $image[1] < 300 || min($image[0], $image[1]) / max($image[0], $image[1]) < 0.85) {
+                @unlink($document['path']);
+                $this->fail('Use a square 2×2 photo image at least 300 × 300 pixels.', 422);
+            }
         }
+        return $document;
     }
 
     /** Upload documents as authenticated (private) Cloudinary assets. */
@@ -292,15 +291,25 @@ class Stalls extends MY_Controller
             $objectName = 'cloudinary/vendor-requirements/' . $vendorId . '/' . $column . '/'
                 . random_id() . '.' . $document['extension'];
             try {
-                $stored[$column] = $this->cloudinary_storage->upload($document['tmp_name'], $objectName);
+                $stored[$column] = $this->cloudinary_storage->upload($document['path'], $objectName);
             } catch (Throwable $error) {
                 $this->delete_documents($stored);
+                $this->delete_staged($documents);
                 error_log('Pwesto vendor document upload failed for ' . self::DOCUMENT_LABELS[$column]
-                    . ' (' . $document['mime_type'] . '): ' . get_class($error) . ': ' . $error->getMessage());
+                    . ' (' . $document['mime'] . '): ' . get_class($error) . ': ' . $error->getMessage());
                 $this->fail('The ' . self::DOCUMENT_LABELS[$column] . ' could not be saved. Check the server log for the upload error and try again.', 503);
             }
         }
+        $this->delete_staged($documents);
         return $stored;
+    }
+
+    /** Remove the private staging copies made by the Upload library. */
+    private function delete_staged(array $documents)
+    {
+        foreach ($documents as $document) {
+            @unlink($document['path']);
+        }
     }
 
     private function delete_documents(array $objectNames)
